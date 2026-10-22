@@ -1,18 +1,55 @@
+/**
+ * ==============================================================================
+ * APLIKASI MANAJEMEN PARKIR - FULL BACKEND (SINGLE FILE)
+ * Standar Uji Kompetensi Keahlian (UKK) / SPK Paket 2
+ * Framework: Node.js (Express.js) + MySQL (mysql2/promise)
+ * ==============================================================================
+ */
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { pool, logActivity } = require('./db');
+const mysql = require('mysql2/promise');
 
 const app = express();
 const PORT = 3000;
 
+// ==============================================================================
+// 1. KONFIGURASI DATABASE (CONNECTION POOLING)
+// ==============================================================================
+// Menggunakan pool agar koneksi database efisien dan otomatis terkelola
+const pool = mysql.createPool({
+    host: 'localhost',
+    user: 'root',
+    password: '',
+    database: 'db_parkir',
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+
+// Helper Function: Pencatatan Audit Trail / Log Aktivitas Pengguna (Syarat SPK)
+async function logActivity(username, aktivitas) {
+    try {
+        await pool.query(
+            'INSERT INTO log_aktivitas (username, aktivitas) VALUES (?, ?)',
+            [username || 'system', aktivitas]
+        );
+    } catch (err) {
+        console.error('[Audit Log Error]:', err.message);
+    }
+}
+
+// Middleware dasar
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ==========================================
-// 1. AUTHENTICATION (LOGIN & LOGOUT)
-// ==========================================
+// ==============================================================================
+// 2. MODUL AUTENTIKASI (LOGIN & LOGOUT 3 LEVEL USER)
+// ==============================================================================
+
+// POST /api/auth/login - Autentikasi Admin, Petugas, dan Owner
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { username, password } = req.body;
@@ -43,6 +80,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// POST /api/auth/logout - Logout & Catat Aktivitas
 app.post('/api/auth/logout', async (req, res) => {
     const { username } = req.body;
     if (username) {
@@ -51,9 +89,10 @@ app.post('/api/auth/logout', async (req, res) => {
     res.json({ success: true, message: 'Logout berhasil' });
 });
 
-// ==========================================
-// 2. CRUD USERS (KHUSUS ADMIN)
-// ==========================================
+// ==============================================================================
+// 3. MASTER DATA: PENGGUNA (CRUD USERS - KHUSUS ADMIN)
+// ==============================================================================
+
 app.get('/api/users', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT id, username, nama_lengkap, role, created_at FROM users ORDER BY id DESC');
@@ -111,9 +150,10 @@ app.delete('/api/users/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// 3. CRUD TARIF PARKIR (KHUSUS ADMIN)
-// ==========================================
+// ==============================================================================
+// 4. MASTER DATA: TARIF PARKIR (CRUD TARIF - KHUSUS ADMIN)
+// ==============================================================================
+
 app.get('/api/tarif', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM tarif_parkir ORDER BY id ASC');
@@ -164,9 +204,10 @@ app.delete('/api/tarif/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// 4. CRUD AREA PARKIR (KHUSUS ADMIN)
-// ==========================================
+// ==============================================================================
+// 5. MASTER DATA: AREA PARKIR (CRUD AREA - KHUSUS ADMIN)
+// ==============================================================================
+
 app.get('/api/area', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM area_parkir ORDER BY id ASC');
@@ -217,9 +258,10 @@ app.delete('/api/area/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// 5. CRUD KENDARAAN / MASTER DATA (KHUSUS ADMIN)
-// ==========================================
+// ==============================================================================
+// 6. MASTER DATA: KENDARAAN (CRUD KENDARAAN - KHUSUS ADMIN)
+// ==============================================================================
+
 app.get('/api/kendaraan', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM kendaraan ORDER BY id DESC');
@@ -270,9 +312,10 @@ app.delete('/api/kendaraan/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// 6. LOG AKTIVITAS (KHUSUS ADMIN)
-// ==========================================
+// ==============================================================================
+// 7. AUDIT TRAIL: LOG AKTIVITAS (KHUSUS ADMIN)
+// ==============================================================================
+
 app.get('/api/logs', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM log_aktivitas ORDER BY waktu DESC LIMIT 100');
@@ -282,10 +325,11 @@ app.get('/api/logs', async (req, res) => {
     }
 });
 
-// ==========================================
-// 7. TRANSAKSI PARKIR (PETUGAS & ADMIN)
-// ==========================================
-// Mendapatkan daftar transaksi aktif (kendaraan masih di dalam)
+// ==============================================================================
+// 8. TRANSAKSI PARKIR (CHECK-IN, CHECK-OUT, HITUNG BIAYA - PETUGAS/KASIR)
+// ==============================================================================
+
+// Menampilkan semua kendaraan yang masih parkir
 app.get('/api/transaksi/aktif', async (req, res) => {
     try {
         const [rows] = await pool.query(`
@@ -302,7 +346,7 @@ app.get('/api/transaksi/aktif', async (req, res) => {
     }
 });
 
-// Masuk Parkir (Check-In)
+// Check-In Kendaraan Masuk & Generate Karcis
 app.post('/api/transaksi/masuk', async (req, res) => {
     try {
         const { plat_nomor, id_tarif, id_area, petugas } = req.body;
@@ -310,7 +354,7 @@ app.post('/api/transaksi/masuk', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Lengkapi semua form!' });
         }
 
-        // Cek apakah plat nomor ini masih terdata di dalam
+        // Validasi kendaraan tidak ganda di dalam
         const [active] = await pool.query("SELECT id FROM transaksi_parkir WHERE plat_nomor = ? AND status = 'masuk'", [plat_nomor.toUpperCase()]);
         if (active.length > 0) {
             return res.status(400).json({ success: false, message: 'Kendaraan dengan plat ini masih berada di dalam area parkir!' });
@@ -328,11 +372,11 @@ app.post('/api/transaksi/masuk', async (req, res) => {
             [kode_tiket, plat_nomor.toUpperCase(), id_tarif, id_area, petugas || 'Petugas']
         );
 
-        // Update kuota area parkir
+        // Tambah kuota terisi pada area parkir
         await pool.query('UPDATE area_parkir SET terisi = terisi + 1 WHERE id = ?', [id_area]);
         await logActivity(petugas, `Kendaraan Masuk: ${plat_nomor.toUpperCase()} [Tiket: ${kode_tiket}]`);
 
-        // Ambil data transaksi lengkap untuk struk
+        // Ambil data tiket lengkap untuk dicetak
         const [ticketData] = await pool.query(`
             SELECT t.*, tp.jenis_kendaraan, tp.tarif_per_jam, ap.nama_area, ap.kode_area
             FROM transaksi_parkir t
@@ -351,10 +395,10 @@ app.post('/api/transaksi/masuk', async (req, res) => {
     }
 });
 
-// Hitung Estimasi / Biaya Keluar Parkir (Check-Out)
+// Hitung Kalkulasi Biaya saat Kendaraan Keluar
 app.post('/api/transaksi/hitung-keluar', async (req, res) => {
     try {
-        const { search } = req.body; // bisa kode tiket atau plat nomor
+        const { search } = req.body;
         const [rows] = await pool.query(`
             SELECT t.*, tp.jenis_kendaraan, tp.tarif_per_jam, tp.tarif_maksimal, ap.nama_area, ap.kode_area
             FROM transaksi_parkir t
@@ -372,7 +416,7 @@ app.post('/api/transaksi/hitung-keluar', async (req, res) => {
         const waktuMasuk = new Date(data.waktu_masuk);
         const waktuKeluar = new Date();
         const diffMs = waktuKeluar - waktuMasuk;
-        const diffHours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60))); // Minimal dihitung 1 jam
+        const diffHours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60))); // Pembulatan ke atas, min 1 jam
 
         let totalBayar = diffHours * data.tarif_per_jam;
         if (data.tarif_maksimal > 0 && totalBayar > data.tarif_maksimal) {
@@ -393,7 +437,7 @@ app.post('/api/transaksi/hitung-keluar', async (req, res) => {
     }
 });
 
-// Bayar & Selesaikan Parkir (Check-Out Final)
+// Check-Out Final: Pembayaran & Selesaikan Transaksi
 app.post('/api/transaksi/bayar', async (req, res) => {
     try {
         const { id, durasi_jam, total_bayar, petugas } = req.body;
@@ -410,11 +454,11 @@ app.post('/api/transaksi/bayar', async (req, res) => {
             [durasi_jam, total_bayar, petugas || 'Petugas', id]
         );
 
-        // Update kuota area parkir
+        // Kurangi kuota terisi pada area parkir
         await pool.query('UPDATE area_parkir SET terisi = GREATEST(0, terisi - 1) WHERE id = ?', [item.id_area]);
         await logActivity(petugas, `Kendaraan Keluar: ${item.plat_nomor} - Bayar Rp${total_bayar}`);
 
-        // Ambil detail struk selesai
+        // Ambil data struk pembayaran
         const [finalData] = await pool.query(`
             SELECT t.*, tp.jenis_kendaraan, tp.tarif_per_jam, ap.nama_area
             FROM transaksi_parkir t
@@ -433,9 +477,10 @@ app.post('/api/transaksi/bayar', async (req, res) => {
     }
 });
 
-// ==========================================
-// 8. REKAP LAPORAN SESUAI WAKTU (KHUSUS OWNER & ADMIN)
-// ==========================================
+// ==============================================================================
+// 9. LAPORAN & REKAPITULASI (KHUSUS OWNER & ADMIN)
+// ==============================================================================
+
 app.get('/api/laporan', async (req, res) => {
     try {
         const { start_date, end_date } = req.query;
@@ -470,7 +515,7 @@ app.get('/api/laporan', async (req, res) => {
     }
 });
 
-// Global stats untuk Dashboard
+// Ringkasan Statistik untuk Dashboard
 app.get('/api/stats', async (req, res) => {
     try {
         const [[aktifCount]] = await pool.query("SELECT COUNT(*) as count FROM transaksi_parkir WHERE status = 'masuk'");
@@ -490,11 +535,14 @@ app.get('/api/stats', async (req, res) => {
     }
 });
 
-// Fallback untuk SPA
+// Fallback routing untuk Single Page Application (SPA)
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ==============================================================================
+// 10. JALANKAN SERVER
+// ==============================================================================
 app.listen(PORT, () => {
-    console.log(`🚀 Aplikasi Parkir berjalan lancar di: http://localhost:${PORT}`);
+    console.log(`🚀 Server Backend Aplikasi Parkir aktif di: http://localhost:${PORT}`);
 });

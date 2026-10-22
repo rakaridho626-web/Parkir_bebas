@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preview & Export Diagram PNG</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .diagram-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            padding: 24px;
+            margin-bottom: 32px;
+            border: 1px solid #e2e8f0;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 p-6 md:p-12">
+    <div class="max-w-5xl mx-auto">
+        <header class="mb-10 text-center">
+            <h1 class="text-3xl font-extrabold text-slate-900">DIAGRAM ACTIVITY & SWIMLANE (UKK RPL PAKET 2)</h1>
+            <p class="text-slate-500 mt-2">Klik tombol <b>"Download PNG"</b> di bawah tiap diagram untuk mengunduh gambar beresolusi tinggi langsung.</p>
+        </header>
+
+        <!-- 1. ACTIVITY LOGIN -->
+        <div class="diagram-card" id="card-activity-login">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-indigo-700">1. Activity Diagram: Alur Login Pengguna</h2>
+                <button onclick="downloadPNG('diagram-1', 'Activity_Diagram_Login.png')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2">
+                    <span>⬇ Download PNG</span>
+                </button>
+            </div>
+            <div class="mermaid flex justify-center bg-white p-4 rounded-xl overflow-x-auto" id="diagram-1">
+flowchart TD
+    Start([Mulai]) --> B[Pengguna Masukkan Username & Password]
+    B --> C[Klik Tombol Masuk Sistem]
+    C --> D[(Cek Akun pada tb_user & status_aktif=1)]
+    D --> E{Apakah Akun Valid?}
+    
+    E -- Tidak Valid / Nonaktif --> F[Tampilkan Pesan 'Username atau Password Salah']
+    F --> B
+    
+    E -- Valid --> G[(Catat ke tb_log_aktivitas: Login Berhasil)]
+    G --> H[Simpan Sesi User di LocalStorage / Session]
+    H --> I{Identifikasi Role Pengguna}
+    
+    I -- Role = 'admin' --> J[Buka Dashboard Penuh + Akses CRUD & Log]
+    I -- Role = 'petugas' --> K[Buka Dashboard Kasir Pos Parkir]
+    I -- Role = 'owner' --> L[Buka Dashboard Ringkasan & Rekapitulasi Laporan]
+    
+    J --> End([Selesai])
+    K --> End
+    L --> End
+            </div>
+        </div>
+
+        <!-- 2. ACTIVITY MASUK -->
+        <div class="diagram-card" id="card-activity-masuk">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-indigo-700">2. Activity Diagram: Transaksi Kendaraan Masuk (Check-In)</h2>
+                <button onclick="downloadPNG('diagram-2', 'Activity_Diagram_Kendaraan_Masuk.png')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2">
+                    <span>⬇ Download PNG</span>
+                </button>
+            </div>
+            <div class="mermaid flex justify-center bg-white p-4 rounded-xl overflow-x-auto" id="diagram-2">
+flowchart TD
+    Start([Pengendara Datang]) --> B[Petugas Input Plat Nomor, Pilih Jenis Kendaraan & Area]
+    B --> C[Klik Tombol Cetak Tiket Masuk]
+    C --> D[(Cek tb_transaksi: Apakah Plat Masih Berstatus 'masuk'?)]
+    
+    D --> E{Plat Sudah di Dalam?}
+    E -- Ya --> F[Tolak: Kendaraan Masih Berada di Dalam Area]
+    F --> EndFail([Selesai])
+    
+    E -- Tidak --> G[(Cek tb_area_parkir: terisi < kapasitas?)]
+    G --> H{Kapasitas Cukup?}
+    H -- Penuh --> I[Tolak: Slot Area Parkir Sudah Penuh]
+    I --> EndFail
+    
+    H -- Tersedia --> J[Generate Kode Tiket Otomatis: TIK-YYYYMMDD-XXXX]
+    J --> K[(INSERT ke tb_transaksi: status='masuk', waktu_masuk=NOW())]
+    K --> L[(UPDATE tb_area_parkir: terisi = terisi + 1)]
+    L --> M[(INSERT ke tb_log_aktivitas: Kendaraan Masuk)]
+    M --> N[Cetak Karcis / Struk Parkir Fisik]
+    N --> O[Buka Palang Pintu Masuk / Barrier Gate]
+    O --> EndSuccess([Kendaraan Masuk])
+            </div>
+        </div>
+
+        <!-- 3. ACTIVITY KELUAR -->
+        <div class="diagram-card" id="card-activity-keluar">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-indigo-700">3. Activity Diagram: Transaksi Kendaraan Keluar (Check-Out)</h2>
+                <button onclick="downloadPNG('diagram-3', 'Activity_Diagram_Kendaraan_Keluar.png')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2">
+                    <span>⬇ Download PNG</span>
+                </button>
+            </div>
+            <div class="mermaid flex justify-center bg-white p-4 rounded-xl overflow-x-auto" id="diagram-3">
+flowchart TD
+    Start([Pengendara Menuju Pos Keluar]) --> B[Petugas Input/Scan Kode Tiket atau Plat Nomor]
+    B --> C[(SELECT dari tb_transaksi WHERE status='masuk')]
+    C --> D{Data Tiket Ditemukan?}
+    
+    D -- Tidak Ditemukan --> E[Tampilkan Peringatan: Tiket Tidak Valid / Sudah Keluar]
+    E --> EndFail([Selesai])
+    
+    D -- Ditemukan --> F[Hitung Durasi: ceil((waktu_keluar - waktu_masuk) / 1 Jam)]
+    F --> G[Hitung Total Biaya: durasi_jam * tarif_per_jam]
+    G --> H{Apakah Melebihi Tarif Maksimal?}
+    H -- Ya --> I[biaya_total = tarif_maksimal]
+    H -- Tidak --> J[biaya_total = total kalkulasi]
+    
+    I --> K[Tampilkan Rincian Durasi & Total Tagihan di Layar Kasir]
+    J --> K
+    K --> L[Pengendara Membayar Tunai / QRIS]
+    L --> M[Petugas Konfirmasi Tombol Bayar & Selesai]
+    M --> N[(UPDATE tb_transaksi: status='keluar', waktu_keluar=NOW(), biaya_total)]
+    N --> O[(UPDATE tb_area_parkir: terisi = terisi - 1)]
+    O --> P[(INSERT ke tb_log_aktivitas: Kendaraan Keluar)]
+    P --> Q[Cetak Struk Bukti Pembayaran Parkir]
+    Q --> R[Buka Palang Pintu Keluar]
+    R --> EndSuccess([Kendaraan Keluar Selesai])
+            </div>
+        </div>
+
+        <!-- 4. SWIMLANE MASUK -->
+        <div class="diagram-card" id="card-swimlane-masuk">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-indigo-700">4. Swimlane: Alur Masuk Kendaraan (Check-In)</h2>
+                <button onclick="downloadPNG('diagram-4', 'Swimlane_Kendaraan_Masuk.png')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2">
+                    <span>⬇ Download PNG</span>
+                </button>
+            </div>
+            <div class="mermaid flex justify-center bg-white p-4 rounded-xl overflow-x-auto" id="diagram-4">
+sequenceDiagram
+    autonumber
+    actor Pengendara as Pengendara
+    actor Petugas as Petugas Kasir Masuk
+    participant Sistem as Sistem / Frontend
+    participant Backend as Backend (server.js)
+    participant Database as Database (parkir)
+
+    Pengendara->>Petugas: Membawa Kendaraan ke Gerbang Masuk
+    Petugas->>Sistem: Input Plat Nomor, Pilih Jenis Tarif & Area
+    Sistem->>Backend: POST /api/transaksi/masuk
+    Backend->>Database: SELECT tb_transaksi (Cek duplikasi plat)
+    Database-->>Backend: Hasil pengecekan
+    
+    alt Jika Plat Sudah Ada di Dalam
+        Backend-->>Sistem: Error: Kendaraan masih ada di dalam
+        Sistem-->>Petugas: Notifikasi Peringatan
+    else Jika Kapasitas Area Penuh
+        Backend->>Database: SELECT tb_area_parkir (terisi >= kapasitas)
+        Database-->>Backend: Status area penuh
+        Backend-->>Sistem: Error: Slot parkir penuh
+        Sistem-->>Petugas: Notifikasi Area Penuh
+    else Kendaraan Boleh Masuk
+        Backend->>Backend: Generate Kode Tiket (TIK-YYYYMMDD-XXXX)
+        Backend->>Database: INSERT tb_transaksi (status='masuk')
+        Backend->>Database: UPDATE tb_area_parkir (terisi + 1)
+        Backend->>Database: INSERT tb_log_aktivitas
+        Database-->>Backend: Simpan Berhasil
+        Backend-->>Sistem: Respon Sukses + Detail Tiket
+        Sistem->>Sistem: Cetak Karcis Masuk
+        Petugas->>Pengendara: Serahkan Tiket & Buka Palang
+    end
+            </div>
+        </div>
+
+        <!-- 5. SWIMLANE KELUAR -->
+        <div class="diagram-card" id="card-swimlane-keluar">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-indigo-700">5. Swimlane: Alur Keluar Kendaraan & Bayar (Check-Out)</h2>
+                <button onclick="downloadPNG('diagram-5', 'Swimlane_Kendaraan_Keluar.png')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2">
+                    <span>⬇ Download PNG</span>
+                </button>
+            </div>
+            <div class="mermaid flex justify-center bg-white p-4 rounded-xl overflow-x-auto" id="diagram-5">
+sequenceDiagram
+    autonumber
+    actor Pengendara as Pengendara
+    actor Petugas as Petugas Kasir Keluar
+    participant Sistem as Sistem / Frontend
+    participant Backend as Backend (server.js)
+    participant Database as Database (parkir)
+
+    Pengendara->>Petugas: Menyerahkan Tiket Parkir / Plat Nomor
+    Petugas->>Sistem: Masukkan Kode Tiket / Plat
+    Sistem->>Backend: POST /api/transaksi/hitung-keluar
+    Backend->>Database: SELECT tb_transaksi JOIN tb_tarif WHERE status='masuk'
+    Database-->>Backend: Data waktu_masuk & tarif
+    Backend->>Backend: Kalkulasi: durasi_jam & biaya_total
+    Backend-->>Sistem: Return rincian durasi & total_bayar
+    Sistem-->>Petugas: Tampilkan Rincian Tagihan
+    
+    Petugas->>Pengendara: Informasikan Total Biaya
+    Pengendara->>Petugas: Menyerahkan Pembayaran
+    Petugas->>Sistem: Klik 'Bayar & Selesai'
+    Sistem->>Backend: POST /api/transaksi/bayar
+    Backend->>Database: UPDATE tb_transaksi (status='keluar')
+    Backend->>Database: UPDATE tb_area_parkir (terisi - 1)
+    Backend->>Database: INSERT tb_log_aktivitas
+    Database-->>Backend: Update Selesai
+    Backend-->>Sistem: Respon Transaksi Berhasil
+    Sistem->>Sistem: Cetak Struk Bukti Pembayaran
+    Petugas->>Pengendara: Berikan Struk & Buka Palang
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+
+        function downloadPNG(containerId, filename) {
+            const container = document.getElementById(containerId);
+            const svg = container.querySelector('svg');
+            if (!svg) {
+                alert('Tunggu diagram selesai di-render!');
+                return;
+            }
+
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+            const URL = window.URL || window.webkitURL || window;
+            const blobURL = URL.createObjectURL(svgBlob);
+
+            const image = new Image();
+            image.onload = () => {
+                const canvas = document.createElement('canvas');
+                const scale = 2; // High resolution 2x
+                canvas.width = svg.getBoundingClientRect().width * scale || 1200 * scale;
+                canvas.height = svg.getBoundingClientRect().height * scale || 800 * scale;
+                const context = canvas.getContext('2d');
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+                const pngURL = canvas.toDataURL('image/png');
+                const downloadLink = document.createElement('a');
+                downloadLink.href = pngURL;
+                downloadLink.download = filename;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+            };
+            image.src = blobURL;
+        }
+    </script>
+</body>
+</html>

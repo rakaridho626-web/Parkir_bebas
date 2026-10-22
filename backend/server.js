@@ -43,7 +43,7 @@ async function logActivity(username, aktivitas) {
 // Middleware dasar
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ==============================================================================
 // 2. MODUL AUTENTIKASI (LOGIN & LOGOUT 3 LEVEL USER)
@@ -537,7 +537,7 @@ app.get('/api/stats', async (req, res) => {
 
 // Fallback routing untuk Single Page Application (SPA)
 app.use((req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 // ==============================================================================

@@ -204,10 +204,20 @@ function switchTab(tabId) {
 // ==========================================
 async function loadDashboard(container) {
     container.innerHTML = `<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-circle-notch fa-spin text-3xl"></i></div>`;
-    const res = await fetch(`${API_BASE}/stats`);
-    const data = await res.json();
+    
+    // Ambil stats dan data untuk quick form kasir
+    const [resStats, resTarif, resArea] = await Promise.all([
+        fetch(`${API_BASE}/stats`).then(r => r.json()),
+        fetch(`${API_BASE}/tarif`).then(r => r.json()),
+        fetch(`${API_BASE}/area`).then(r => r.json())
+    ]);
+
+    const data = resStats;
+    const tarifOptions = (resTarif.data || []).map(t => `<option value="${t.id}">${t.jenis_kendaraan} (${formatRupiah(t.tarif_per_jam)}/jam)</option>`).join('');
+    const areaOptions = (resArea.data || []).map(a => `<option value="${a.id}">${a.kode_area} - ${a.nama_area} (Sisa: ${a.kapasitas - a.terisi})</option>`).join('');
 
     container.innerHTML = `
+        <!-- STATS CARDS -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <div class="flex items-center justify-between">
@@ -255,6 +265,63 @@ async function loadDashboard(container) {
             </div>
         </div>
 
+        <!-- POS KASIR TRANSAKSI LANGSUNG DI DASHBOARD -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Form Masuk -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-arrow-right-to-bracket text-emerald-600"></i>
+                    Kasir Masuk (Check-In Cepat)
+                </h3>
+                <form id="form-masuk-dash" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Plat Nomor</label>
+                        <input type="text" id="masuk-plat-dash" required placeholder="Misal: B 1234 ABC" 
+                            class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 uppercase font-mono font-bold text-slate-800">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Jenis Kendaraan</label>
+                            <select id="masuk-tarif-dash" required class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm">
+                                ${tarifOptions}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Area Parkir</label>
+                            <select id="masuk-area-dash" required class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm">
+                                ${areaOptions}
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-print"></i>
+                        <span>Cetak Tiket Masuk</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Form Keluar / Kasir Pembayaran -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-arrow-right-from-bracket text-indigo-600"></i>
+                    Kasir Keluar & Pembayaran
+                </h3>
+                <form id="form-keluar-dash" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Cari Kode Tiket / Plat Nomor</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="keluar-search-dash" required placeholder="TIK-... atau Plat Nomor" 
+                                class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 uppercase font-mono font-bold text-slate-800">
+                            <button type="submit" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                <div id="checkout-result-dash" class="hidden mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200"></div>
+            </div>
+        </div>
+
         <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <h4 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
                 <i class="fa-solid fa-shield-halved text-indigo-600"></i>
@@ -276,6 +343,89 @@ async function loadDashboard(container) {
             </div>
         </div>
     `;
+
+    // Event listener masuk di dashboard
+    document.getElementById('form-masuk-dash').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const plat = document.getElementById('masuk-plat-dash').value.trim();
+        const tarif = document.getElementById('masuk-tarif-dash').value;
+        const area = document.getElementById('masuk-area-dash').value;
+
+        try {
+            const res = await fetch(`${API_BASE}/transaksi/masuk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    plat_nomor: plat,
+                    id_tarif: tarif,
+                    id_area: area,
+                    petugas: currentUser.nama_lengkap
+                })
+            });
+            const result = await res.json();
+            if (result.success) {
+                printStrukMasuk(result.tiket);
+                loadDashboard(container);
+            } else {
+                alert(result.message);
+            }
+        } catch (err) {
+            alert('Gagal memproses kendaraan masuk!');
+        }
+    });
+
+    // Event listener keluar di dashboard
+    document.getElementById('form-keluar-dash').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const search = document.getElementById('keluar-search-dash').value.trim();
+        const resultBox = document.getElementById('checkout-result-dash');
+
+        try {
+            const res = await fetch(`${API_BASE}/transaksi/hitung-keluar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ search })
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                resultBox.innerHTML = `<p class="text-rose-600 text-sm font-semibold">${data.message}</p>`;
+                resultBox.classList.remove('hidden');
+                return;
+            }
+
+            const t = data.transaksi;
+            const est = data.estimasi;
+
+            resultBox.innerHTML = `
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between border-b pb-1">
+                        <span class="text-slate-500">Tiket:</span>
+                        <span class="font-mono font-bold text-slate-800">${t.kode_tiket}</span>
+                    </div>
+                    <div class="flex justify-between border-b pb-1">
+                        <span class="text-slate-500">Plat Nomor:</span>
+                        <span class="font-bold text-slate-800">${t.plat_nomor}</span>
+                    </div>
+                    <div class="flex justify-between border-b pb-1">
+                        <span class="text-slate-500">Durasi:</span>
+                        <span class="font-bold text-slate-800">${est.durasi_jam} Jam</span>
+                    </div>
+                    <div class="flex justify-between pt-1">
+                        <span class="font-bold text-slate-800">Total Tagihan:</span>
+                        <span class="font-extrabold text-indigo-600 text-lg">${formatRupiah(est.total_bayar)}</span>
+                    </div>
+                    <button onclick="bayarTransaksi(${t.id}, ${est.durasi_jam}, ${est.total_bayar})" 
+                        class="w-full mt-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow transition">
+                        Bayar & Cetak Struk
+                    </button>
+                </div>
+            `;
+            resultBox.classList.remove('hidden');
+        } catch (err) {
+            alert('Gagal menghitung biaya keluar!');
+        }
+    });
 }
 
 // ==========================================

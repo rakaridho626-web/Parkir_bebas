@@ -1,53 +1,46 @@
-# Database Schema - Parkir Bebas (Sistem Manajemen Parkir)
+# Parkir Bebas - Aplikasi Parkir
 
-Skema database relasional untuk sistem manajemen parkir, kompatibel dengan **MySQL / MariaDB / PostgreSQL**.
+Aplikasi manajemen parkir dengan 3 level pengguna (admin, petugas, owner).
+UKK RPL 2025/2026 - Paket 2 (SPK Praktik Kejuruan).
 
----
+## Teknologi
+- Backend: Node.js, Express 5, mysql2, bcryptjs
+- Frontend: HTML + JavaScript (folder `public/`), disajikan langsung oleh Express
+- Database: MySQL / MariaDB
 
-## 1. Struktur Tabel
+## Struktur
+```
+backend/                    server.js (API + static file server), package.json
+public/                     index.html, app.js
+database_spk_asli.sql       skema database `parkir` + data awal
+```
 
-### A. `users` (Petugas / Admin)
-Menyimpan data akun petugas kasir, operator pos parkir, atau administrator sistem.
-- `id` (INT, Primary Key, Auto Increment)
-- `nama` (VARCHAR(100))
-- `username` (VARCHAR(50), Unique)
-- `password` (VARCHAR(255))
-- `role` (ENUM: `'admin'`, `'petugas'`)
-- `created_at` (TIMESTAMP)
+## Cara menjalankan
+1. Import database:
+   ```
+   mysql -u root < database_spk_asli.sql
+   ```
+2. Sesuaikan koneksi DB di `backend/server.js` jika perlu (default: `localhost`, user `root`, password kosong, database `parkir`).
+3. Install dan jalankan:
+   ```
+   cd backend
+   npm install
+   node server.js
+   ```
+4. Buka http://localhost:3000
 
-### B. `tipe_kendaraan` (Kategori & Tarif)
-Menyimpan master jenis kendaraan beserta aturan tarif per jam.
-- `id` (INT, Primary Key, Auto Increment)
-- `nama_tipe` (VARCHAR(50)) — contoh: Motor, Mobil, Truk/Bus
-- `tarif_dasar` (DECIMAL(10,2)) — tarif jam pertama / biaya masuk
-- `tarif_per_jam` (DECIMAL(10,2)) — tarif untuk jam-jam berikutnya
-- `denda_tiket_hilang` (DECIMAL(10,2))
+## Akun default
+| Role    | Username  | Password |
+|---------|-----------|----------|
+| Admin   | `admin`   | `123456` |
+| Petugas | `petugas` | `123456` |
+| Owner   | `owner`   | `123456` |
 
-### C. `area_parkir` (Slot / Lokasi)
-Menyimpan informasi kapasitas area dan ketersediaan slot parkir.
-- `id` (INT, Primary Key, Auto Increment)
-- `nama_area` (VARCHAR(50)) — contoh: Area A (Lantai 1), Area B (Outdoor)
-- `kapasitas_total` (INT)
-- `slot_terisi` (INT, Default 0)
+## Tabel
+`tb_user`, `tb_tarif`, `tb_area_parkir`, `tb_kendaraan`, `tb_transaksi`, `tb_log_aktivitas`
 
-### D. `transaksi_parkir` (Aktivitas Keluar Masuk)
-Mencatat seluruh transaksi tiket masuk hingga selesai bayar di pos keluar.
-- `id` (BIGINT, Primary Key, Auto Increment)
-- `kode_tiket` (VARCHAR(50), Unique) — barcode / QR code tiket
-- `plat_nomor` (VARCHAR(20))
-- `tipe_kendaraan_id` (INT, Foreign Key -> `tipe_kendaraan.id`)
-- `area_parkir_id` (INT, Foreign Key -> `area_parkir.id`, Nullable)
-- `waktu_masuk` (DATETIME)
-- `waktu_keluar` (DATETIME, Nullable)
-- `durasi_jam` (INT, Default 0)
-- `total_biaya` (DECIMAL(10,2), Default 0)
-- `status` (ENUM: `'parkir'`, `'selesai'`, `'tiket_hilang'`)
-- `petugas_id` (INT, Foreign Key -> `users.id`, Nullable)
-- `metode_pembayaran` (ENUM: `'cash'`, `'qris'`, `'kartu'`)
-- `created_at` (TIMESTAMP)
-
----
-
-## 2. File Script yang Disediakan
-- `schema.sql`: Script DDL lengkap untuk pembuatan tabel, indeks, relasi Foreign Key, serta *dummy data* awal.
-- `seed.sql`: Data awal untuk jenis kendaraan (Motor, Mobil, Truk) dan akun admin default.
+## Endpoint utama
+- Auth: `POST /api/auth/login`, `POST /api/auth/logout`
+- CRUD: `/api/users`, `/api/tarif`, `/api/area`, `/api/kendaraan`
+- Transaksi: `POST /api/transaksi/masuk`, `POST /api/transaksi/hitung-keluar`, `POST /api/transaksi/bayar`, `GET /api/transaksi/aktif`
+- Lainnya: `GET /api/logs`, `GET /api/laporan`, `GET /api/stats`

@@ -73,11 +73,11 @@ CREATE TABLE IF NOT EXISTS tb_log_aktivitas (
 -- DATA AWAL / SEED DATA SESUAI SPK
 -- ==========================================================
 
--- User default (Password: 123456 dan admin)
+-- User default (Password semua akun: 123456, disimpan sebagai hash bcrypt)
 INSERT INTO tb_user (nama_lengkap, username, password, role, status_aktif) VALUES
-('Administrator Utama', 'admin', '123456', 'admin', 1),
-('Petugas Kasir 1', 'petugas', '123456', 'petugas', 1),
-('Bapak Owner', 'owner', '123456', 'owner', 1)
+('Administrator Utama', 'admin', '$2b$10$Rkrq64WPfAAlAxpkILTJ6uFoD7T/p9nQqQD3TuVV0WohsNQprwL96', 'admin', 1),
+('Petugas Kasir 1', 'petugas', '$2b$10$Rkrq64WPfAAlAxpkILTJ6uFoD7T/p9nQqQD3TuVV0WohsNQprwL96', 'petugas', 1),
+('Bapak Owner', 'owner', '$2b$10$Rkrq64WPfAAlAxpkILTJ6uFoD7T/p9nQqQD3TuVV0WohsNQprwL96', 'owner', 1)
 ON DUPLICATE KEY UPDATE nama_lengkap=VALUES(nama_lengkap);
 
 -- Tarif default

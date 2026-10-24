@@ -11,6 +11,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const mysql = require('mysql2/promise');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = 3000;
@@ -38,6 +39,18 @@ async function logActivity(id_user, aktivitas) {
     }
 }
 
+// Helper: Hash & verifikasi password (bcrypt)
+const BCRYPT_ROUNDS = 10;
+const isBcryptHash = (str) => typeof str === 'string' && /^\$2[aby]\$\d{2}\$/.test(str);
+const hashPassword = (plain) => bcrypt.hash(String(plain), BCRYPT_ROUNDS);
+
+// Helper: Hitung durasi (jam, dibulatkan ke atas, minimal 1) dan total biaya di SERVER
+function hitungBiaya(waktuMasuk, tarifPerJam, waktuKeluar = new Date()) {
+    const diffMs = waktuKeluar - new Date(waktuMasuk);
+    const durasiJam = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60)));
+    return { durasiJam, totalBayar: durasiJam * Number(tarifPerJam) };
+}
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -54,11 +67,24 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const [rows] = await pool.query(
-            'SELECT * FROM tb_user WHERE username = ? AND password = ? AND status_aktif = 1',
-            [username, password]
+            'SELECT * FROM tb_user WHERE username = ? AND status_aktif = 1',
+            [username]
         );
 
-        if (rows.length === 0) {
+        let valid = false;
+        if (rows.length > 0) {
+            const stored = rows[0].password;
+            if (isBcryptHash(stored)) {
+                valid = await bcrypt.compare(String(password), stored);
+            } else if (stored === password) {
+                // Password lama (plaintext) dari database lama: terima sekali, lalu upgrade ke hash
+                valid = true;
+                await pool.query('UPDATE tb_user SET password = ? WHERE id_user = ?',
+                    [await hashPassword(password), rows[0].id_user]);
+            }
+        }
+
+        if (!valid) {
             return res.status(401).json({ success: false, message: 'Username/Password salah atau akun tidak aktif!' });
         }
 
@@ -104,9 +130,12 @@ app.get('/api/users', async (req, res) => {
 app.post('/api/users', async (req, res) => {
     try {
         const { username, password, nama_lengkap, role, currentUserId } = req.body;
+        if (!username || !password) {
+            return res.status(400).json({ success: false, message: 'Username dan password wajib diisi!' });
+        }
         await pool.query(
             'INSERT INTO tb_user (username, password, nama_lengkap, role, status_aktif) VALUES (?, ?, ?, ?, 1)',
-            [username, password, nama_lengkap, role]
+            [username, await hashPassword(password), nama_lengkap, role]
         );
         await logActivity(currentUserId, `Menambah user baru: ${username} (${role})`);
         res.json({ success: true, message: 'User berhasil ditambahkan!' });
@@ -122,7 +151,7 @@ app.put('/api/users/:id', async (req, res) => {
         if (password) {
             await pool.query(
                 'UPDATE tb_user SET username = ?, password = ?, nama_lengkap = ?, role = ? WHERE id_user = ?',
-                [username, password, nama_lengkap, role, id]
+                [username, await hashPassword(password), nama_lengkap, role, id]
             );
         } else {
             await pool.query(
@@ -355,58 +384,73 @@ app.get('/api/transaksi/aktif', async (req, res) => {
     }
 });
 
-// Check-In Kendaraan Masuk (Sesuai Swimlane Masuk)
+// Check-In Kendaraan Masuk (Sesuai Swimlane Masuk) - atomik (transaksi DB)
 app.post('/api/transaksi/masuk', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
         const { plat_nomor, id_tarif, id_area, id_user } = req.body;
-        const plat = plat_nomor.toUpperCase().trim();
+        if (!plat_nomor || !id_tarif || !id_area) {
+            return res.status(400).json({ success: false, message: 'Plat nomor, tarif, dan area wajib diisi!' });
+        }
+        const plat = String(plat_nomor).toUpperCase().trim();
 
-        // 1. Cek apakah kendaraan masih berstatus 'masuk' di dalam area parkir
-        const [active] = await pool.query(`
+        await conn.beginTransaction();
+
+        // 1. Validasi tarif & area benar-benar ada
+        const [[tarif]] = await conn.query('SELECT id_tarif, jenis_kendaraan FROM tb_tarif WHERE id_tarif = ?', [id_tarif]);
+        if (!tarif) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'Tarif tidak ditemukan!' });
+        }
+        const [[area]] = await conn.query('SELECT id_area FROM tb_area_parkir WHERE id_area = ? FOR UPDATE', [id_area]);
+        if (!area) {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'Area parkir tidak ditemukan!' });
+        }
+
+        // 2. Cek apakah kendaraan masih berstatus 'masuk'
+        const [active] = await conn.query(`
             SELECT t.id_parkir FROM tb_transaksi t
             JOIN tb_kendaraan k ON t.id_kendaraan = k.id_kendaraan
             WHERE k.plat_nomor = ? AND t.status = 'masuk'
         `, [plat]);
-
         if (active.length > 0) {
+            await conn.rollback();
             return res.status(400).json({ success: false, message: 'Kendaraan dengan plat nomor ini masih berada di dalam area parkir!' });
         }
 
-        // 2. Cek kapasitas area parkir (terisi >= kapasitas)
-        const [[area]] = await pool.query('SELECT * FROM tb_area_parkir WHERE id_area = ?', [id_area]);
-        if (area && area.terisi >= area.kapasitas) {
+        // 3. Ambil slot secara atomik: gagal jika sudah penuh
+        const [slot] = await conn.query(
+            'UPDATE tb_area_parkir SET terisi = terisi + 1 WHERE id_area = ? AND terisi < kapasitas',
+            [id_area]
+        );
+        if (slot.affectedRows === 0) {
+            await conn.rollback();
             return res.status(400).json({ success: false, message: 'Slot area parkir yang dipilih sudah penuh!' });
         }
 
-        // 3. Cek atau daftarkan kendaraan di tb_kendaraan
-        let [kendaraan] = await pool.query('SELECT id_kendaraan FROM tb_kendaraan WHERE plat_nomor = ?', [plat]);
+        // 4. Cek atau daftarkan kendaraan di tb_kendaraan
+        const [kendaraan] = await conn.query('SELECT id_kendaraan FROM tb_kendaraan WHERE plat_nomor = ?', [plat]);
         let id_kendaraan;
         if (kendaraan.length === 0) {
-            const [[tarif]] = await pool.query('SELECT jenis_kendaraan FROM tb_tarif WHERE id_tarif = ?', [id_tarif]);
-            const [insertK] = await pool.query(
+            const [insertK] = await conn.query(
                 'INSERT INTO tb_kendaraan (plat_nomor, jenis_kendaraan, warna, pemilik) VALUES (?, ?, "-", "-")',
-                [plat, tarif ? tarif.jenis_kendaraan : 'motor']
+                [plat, tarif.jenis_kendaraan]
             );
             id_kendaraan = insertK.insertId;
         } else {
             id_kendaraan = kendaraan[0].id_kendaraan;
         }
 
-        // 4. INSERT ke tb_transaksi
-        const [transaksi] = await pool.query(
+        // 5. INSERT ke tb_transaksi
+        const [transaksi] = await conn.query(
             `INSERT INTO tb_transaksi (id_kendaraan, waktu_masuk, id_tarif, id_area, status, id_user, durasi_jam, biaya_total)
              VALUES (?, NOW(), ?, ?, 'masuk', ?, 0, 0)`,
             [id_kendaraan, id_tarif, id_area, id_user || null]
         );
 
-        // 5. UPDATE tb_area_parkir (terisi + 1)
-        await pool.query('UPDATE tb_area_parkir SET terisi = terisi + 1 WHERE id_area = ?', [id_area]);
-
-        // 6. INSERT tb_log_aktivitas
-        await logActivity(id_user, `Kendaraan Masuk: ${plat} (ID Parkir: ${transaksi.insertId})`);
-
-        // Ambil data karcis tiket
-        const [[tiket]] = await pool.query(`
+        // 6. Ambil data karcis tiket
+        const [[tiket]] = await conn.query(`
             SELECT t.id_parkir as id, CONCAT("TIK-", LPAD(t.id_parkir, 6, "0")) as kode_tiket,
                    k.plat_nomor, tf.jenis_kendaraan, tf.tarif_per_jam,
                    a.nama_area, t.waktu_masuk
@@ -417,13 +461,17 @@ app.post('/api/transaksi/masuk', async (req, res) => {
             WHERE t.id_parkir = ?
         `, [transaksi.insertId]);
 
-        res.json({
-            success: true,
-            message: 'Check-in berhasil!',
-            tiket
-        });
+        await conn.commit();
+
+        // 7. INSERT tb_log_aktivitas (di luar transaksi: kegagalan log tidak boleh membatalkan check-in)
+        await logActivity(id_user, `Kendaraan Masuk: ${plat} (ID Parkir: ${transaksi.insertId})`);
+
+        res.json({ success: true, message: 'Check-in berhasil!', tiket });
     } catch (err) {
+        await conn.rollback().catch(() => {});
         res.status(500).json({ success: false, message: err.message });
+    } finally {
+        conn.release();
     }
 });
 
@@ -451,11 +499,8 @@ app.post('/api/transaksi/hitung-keluar', async (req, res) => {
         }
 
         const data = rows[0];
-        const waktuMasuk = new Date(data.waktu_masuk);
         const waktuKeluar = new Date();
-        const diffMs = waktuKeluar - waktuMasuk;
-        const diffHours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60))); // Durasi jam (pembulatan ke atas)
-        const totalBayar = diffHours * Number(data.tarif_per_jam);
+        const { durasiJam: diffHours, totalBayar } = hitungBiaya(data.waktu_masuk, data.tarif_per_jam, waktuKeluar);
 
         res.json({
             success: true,
@@ -471,33 +516,47 @@ app.post('/api/transaksi/hitung-keluar', async (req, res) => {
     }
 });
 
-// Check-Out & Bayar (Sesuai Swimlane Keluar)
+// Check-Out & Bayar (Sesuai Swimlane Keluar) - atomik, biaya dihitung di server
 app.post('/api/transaksi/bayar', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
-        const { id, durasi_jam, total_bayar, id_user } = req.body;
-        const [rows] = await pool.query('SELECT * FROM tb_transaksi WHERE id_parkir = ?', [id]);
+        const { id, id_user } = req.body; // durasi_jam & total_bayar dari client sengaja DIABAIKAN
+
+        await conn.beginTransaction();
+
+        // Kunci baris transaksi supaya tidak bisa dibayar dua kali bersamaan
+        const [rows] = await conn.query(
+            `SELECT t.*, tf.tarif_per_jam
+             FROM tb_transaksi t
+             JOIN tb_tarif tf ON t.id_tarif = tf.id_tarif
+             WHERE t.id_parkir = ? FOR UPDATE`, [id]
+        );
         if (rows.length === 0) {
+            await conn.rollback();
             return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan' });
         }
 
         const item = rows[0];
+        if (item.status !== 'masuk') {
+            await conn.rollback();
+            return res.status(400).json({ success: false, message: 'Transaksi ini sudah dibayar / kendaraan sudah keluar!' });
+        }
+
+        const { durasiJam, totalBayar } = hitungBiaya(item.waktu_masuk, item.tarif_per_jam);
 
         // 1. UPDATE tb_transaksi status='keluar'
-        await pool.query(
-            `UPDATE tb_transaksi 
+        await conn.query(
+            `UPDATE tb_transaksi
              SET waktu_keluar = NOW(), durasi_jam = ?, biaya_total = ?, status = 'keluar', id_user = ?
              WHERE id_parkir = ?`,
-            [durasi_jam, total_bayar, id_user || null, id]
+            [durasiJam, totalBayar, id_user || null, id]
         );
 
         // 2. UPDATE tb_area_parkir (terisi - 1)
-        await pool.query('UPDATE tb_area_parkir SET terisi = GREATEST(0, terisi - 1) WHERE id_area = ?', [item.id_area]);
+        await conn.query('UPDATE tb_area_parkir SET terisi = GREATEST(0, terisi - 1) WHERE id_area = ?', [item.id_area]);
 
-        // 3. INSERT tb_log_aktivitas
-        await logActivity(id_user, `Kendaraan Keluar (ID: ${id}) - Total Bayar: Rp${total_bayar}`);
-
-        // Ambil data struk selesai
-        const [[struk]] = await pool.query(`
+        // 3. Ambil data struk selesai
+        const [[struk]] = await conn.query(`
             SELECT t.id_parkir as id, CONCAT("TIK-", LPAD(t.id_parkir, 6, "0")) as kode_tiket,
                    k.plat_nomor, tf.jenis_kendaraan, tf.tarif_per_jam,
                    a.nama_area, t.waktu_masuk, t.waktu_keluar, t.durasi_jam, t.biaya_total as total_bayar,
@@ -510,13 +569,17 @@ app.post('/api/transaksi/bayar', async (req, res) => {
             WHERE t.id_parkir = ?
         `, [id]);
 
-        res.json({
-            success: true,
-            message: 'Pembayaran berhasil dan struk siap dicetak!',
-            struk
-        });
+        await conn.commit();
+
+        // 4. INSERT tb_log_aktivitas
+        await logActivity(id_user, `Kendaraan Keluar (ID: ${id}) - Total Bayar: Rp${totalBayar}`);
+
+        res.json({ success: true, message: 'Pembayaran berhasil dan struk siap dicetak!', struk });
     } catch (err) {
+        await conn.rollback().catch(() => {});
         res.status(500).json({ success: false, message: err.message });
+    } finally {
+        conn.release();
     }
 });
 

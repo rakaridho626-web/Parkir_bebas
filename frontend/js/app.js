@@ -30,17 +30,9 @@ function tampilLogin() {
 function tampilApp() {
     const user = Auth.user;
     Landing.hide();
-    if (user.role === 'owner') {            // owner punya tampilan sendiri (js/owner.js)
-        Owner.show(logout);
-        return buka();
-    }
-    $('#app-view').hidden = false;
-    $('#user-name').textContent = user.nama_lengkap;
-    $('#user-role').textContent = user.role;
-    $('#user-role').className = `badge badge-${user.role}`;
-    $('#menu').innerHTML = menuUntuk(user.role).map(m =>
-        `<a class="menu-item" href="#/${m.id}" data-id="${m.id}">${UI.icon(m.icon)}<span>${m.label}</span></a>`
-    ).join('');
+    $('#app-view').hidden = true;
+    // Semua role (Owner, Petugas, Admin) menggunakan Panggung Spasial 3D penuh (tanpa sidebar)
+    Owner.show(logout);
     buka();
 }
 
@@ -57,14 +49,7 @@ function buka() {
         return;
     }
 
-    if (user.role === 'owner') return Owner.buka(menu.id);
-
-    document.querySelectorAll('.menu-item[data-id]').forEach(a =>
-        a.classList.toggle('active', a.dataset.id === menu.id));
-    $('#page-title').textContent = menu.label;
-    document.title = `${menu.label} · Parkir Bebas`;
-    document.body.classList.remove('menu-open');
-    Pages[menu.id]($('#page'));
+    return Owner.buka(menu.id);
 }
 
 $('#btn-logout').innerHTML = `${UI.icon('logout')}<span>Keluar</span>`;
@@ -90,4 +75,16 @@ setInterval(() => {
 
 window.addEventListener('hashchange', buka);
 Landing.init(tampilApp);
-Auth.user ? tampilApp() : tampilLogin();
+
+// Dukungan auto-login cepat lewat parameter ?as=admin | ?as=petugas | ?as=owner
+(async () => {
+    const asRole = new URLSearchParams(location.search).get('as');
+    if (asRole && ['admin', 'petugas', 'owner'].includes(asRole)) {
+        try {
+            const res = await api.post('/auth/login', { username: asRole, password: '123456' });
+            Auth.save(res.user);
+            history.replaceState(null, '', location.pathname + (location.hash || '#/dashboard'));
+        } catch {}
+    }
+    Auth.user ? tampilApp() : tampilLogin();
+})();

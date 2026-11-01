@@ -1,12 +1,13 @@
 // ========================================================
-// LANDING PAGE + LOGIN PER ROLE
-// Kursor ke atas = Owner, kiri bawah = Petugas, kanan bawah = Admin.
+// LANDING PAGE + LOGIN EMBUN DI UJUNG LAYAR
+// Kursor ke ujung atas = Owner, pojok kiri bawah = Petugas, pojok kanan bawah = Admin.
+// Tanpa blok/pil tombol kaku & tanpa judul.
 // ========================================================
 
 const PINTU = [
-    { role: 'owner', label: 'Owner', arah: '↑', posisi: 'atas', desc: 'Pantau rekap transaksi dan pendapatan parkir.' },
-    { role: 'petugas', label: 'Petugas', arah: '↙', posisi: 'kiri bawah', desc: 'Catat kendaraan masuk dan keluar, cetak karcis & struk.' },
-    { role: 'admin', label: 'Admin', arah: '↘', posisi: 'kanan bawah', desc: 'Kelola user, tarif, area, kendaraan, dan log aktivitas.' }
+    { role: 'owner', label: 'Owner', posisi: 'ujung atas' },
+    { role: 'petugas', label: 'Petugas', posisi: 'ujung kiri bawah' },
+    { role: 'admin', label: 'Admin', posisi: 'ujung kanan bawah' }
 ];
 
 const Landing = (() => {
@@ -20,19 +21,15 @@ const Landing = (() => {
     function bangun() {
         view.querySelector('#portals').innerHTML = PINTU.map(p => `
             <section class="portal portal-${p.role}" data-role="${p.role}">
-                <button class="portal-tag" type="button">
-                    <span class="portal-arah">${p.arah}</span>
-                    <span><b>${p.label}</b><small>${p.posisi}</small></span>
-                </button>
+                <span class="embun-tepi" aria-hidden="true"></span>
+                <span class="portal-embun" aria-hidden="true"></span>
+                <span class="portal-glow" aria-hidden="true"></span>
                 <form class="portal-card" autocomplete="on" novalidate>
-                    <span class="portal-glow"></span>
-                    <p class="eyebrow">Masuk sebagai</p>
-                    <h2>${p.label}</h2>
-                    <p class="portal-desc">${p.desc}</p>
-                    <label>Username <input name="username" autocomplete="username" required></label>
-                    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+                    <p class="embun-role">${p.label}</p>
+                    <label><span>Username</span><input name="username" placeholder="ketik username..." autocomplete="username" required></label>
+                    <label><span>Kode</span><input name="password" type="password" placeholder="ketik kode..." autocomplete="current-password" required></label>
                     <p class="form-error" hidden></p>
-                    <button class="btn btn-glow btn-block" type="submit">Masuk ${p.label} →</button>
+                    <button class="embun-submit" type="submit">Masuk ${p.label} →</button>
                 </form>
             </section>`).join('');
     }
@@ -45,11 +42,11 @@ const Landing = (() => {
         Scene.setZona(z);
     }
 
-    // Zona dari posisi kursor: dibagi 3 sektor 120° dari tengah layar
+    // Zona dari posisi kursor: muncul saat kursor mendekati ujung layar (atas, kiri bawah, kanan bawah)
     function zonaDari(x, y) {
         const w = view.clientWidth, h = view.clientHeight;
         const dx = x - w / 2, dy = y - h / 2;
-        if (Math.hypot(dx / (w / 2), dy / (h / 2)) < 0.22) return null;   // area tengah = netral
+        if (Math.hypot(dx / (w / 2), dy / (h / 2)) < 0.32) return null;   // area tengah = bersih (netral)
         const a = Math.atan2(dy, dx) * 180 / Math.PI;
         if (a > -150 && a < -30) return 'owner';
         if (a >= -30 && a <= 90) return 'admin';
@@ -77,13 +74,13 @@ const Landing = (() => {
         setZona(zonaDari(e.clientX, e.clientY));
     }
 
-    // Kartu login miring 3D mengikuti kursor
+    // Embun di kaca bereaksi lembut terhadap kursor
     function tilt(e) {
         const card = e.currentTarget;
         const r = card.getBoundingClientRect();
         const px = (e.clientX - r.left) / r.width - 0.5, py = (e.clientY - r.top) / r.height - 0.5;
-        card.style.setProperty('--rx', `${(-py * 10).toFixed(2)}deg`);
-        card.style.setProperty('--ry', `${(px * 12).toFixed(2)}deg`);
+        card.style.setProperty('--rx', `${(-py * 6).toFixed(2)}deg`);
+        card.style.setProperty('--ry', `${(px * 8).toFixed(2)}deg`);
         card.style.setProperty('--gx', `${(px + 0.5) * 100}%`);
         card.style.setProperty('--gy', `${(py + 0.5) * 100}%`);
     }
@@ -103,7 +100,7 @@ const Landing = (() => {
             });
             if (res.user.role !== role) {
                 const p = PINTU.find(x => x.role === res.user.role);
-                throw new Error(`Akun ini terdaftar sebagai ${p ? p.label : res.user.role}. Silakan masuk lewat sisi ${p ? p.label : ''} (${p ? p.posisi : ''}).`);
+                throw new Error(`Akun ini terdaftar sebagai ${p ? p.label : res.user.role}. Silakan arahkan kursor ke ${p ? p.posisi : ''}.`);
             }
             Auth.save(res.user);
             reset();
@@ -122,8 +119,8 @@ const Landing = (() => {
         bangun();
         view.addEventListener('pointermove', onMove);
         view.addEventListener('pointerdown', e => {
-            if (e.target.closest('.portal')) return;
-            reset();                                   // klik area kosong = batal
+            if (e.target.closest('.portal-card')) return;
+            reset();
             setZona(zonaDari(e.clientX, e.clientY));
         });
         document.addEventListener('keydown', e => {
@@ -132,11 +129,6 @@ const Landing = (() => {
 
         PINTU.forEach(p => {
             const el = portal(p.role);
-            el.querySelector('.portal-tag').addEventListener('click', () => {
-                reset();
-                setZona(p.role);
-                el.querySelector('input').focus();
-            });
             const card = el.querySelector('.portal-card');
             card.addEventListener('pointermove', tilt);
             card.addEventListener('pointerleave', () => {

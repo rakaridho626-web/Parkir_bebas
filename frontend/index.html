@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;600&display=swap">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=3d9">
 </head>
 <body>
 
@@ -15,30 +15,18 @@
     <div id="login-view" class="landing" hidden>
         <canvas id="scene" aria-hidden="true"></canvas>
         <div class="landing-vignette"></div>
-
-        <header class="landing-head">
-            <div class="brand">
-                <span class="logo">P</span>
-                <div><b>Parkir Bebas</b><small>Sistem Manajemen Parkir</small></div>
-            </div>
-            <span class="landing-clock" id="landing-clock"></span>
-        </header>
+        <span class="landing-clock" id="landing-clock" hidden></span>
 
         <div class="landing-hero">
             <p class="eyebrow">Sistem Manajemen Parkir</p>
             <h1>Parkir<br><span>Bebas</span></h1>
-            <p class="landing-hint">Arahkan kursor untuk memilih pintu masuk</p>
-            <div class="landing-legend">
-                <span><i>↑</i> Owner</span>
-                <span><i>↙</i> Petugas</span>
-                <span><i>↘</i> Admin</span>
-            </div>
+            <p class="landing-hint">Arahkan kursor ke ujung layar untuk masuk</p>
         </div>
 
         <div id="portals"></div>
     </div>
 
-    <!-- HALAMAN APLIKASI -->
+    <!-- HALAMAN APLIKASI (Fallback) -->
     <div id="app-view" class="layout" hidden>
         <aside class="sidebar" id="sidebar">
             <div class="brand">
@@ -64,29 +52,24 @@
         </div>
     </div>
 
-    <!-- PANEL OWNER: pojok kanan atas = Dashboard, pojok kiri bawah = Rekap -->
+    <!-- PANEL SPASIAL 3D (OWNER, PETUGAS, & ADMIN): pojok kanan atas = Dashboard, pojok kiri bawah = Panel Kerja 3D -->
     <div id="owner-view" class="owner" hidden>
         <div class="lot-stage" aria-hidden="true">
             <div class="lot-tilt"><div class="lot-plane" id="lot-plane"></div></div>
         </div>
         <div class="owner-vignette"></div>
 
-        <header class="owner-head">
-            <div class="brand">
-                <span class="logo">P</span>
-                <div><b>Parkir Bebas</b><small>Panel Owner</small></div>
-            </div>
-        </header>
+        <span id="owner-sub" hidden></span>
 
         <main id="owner-page" class="owner-page"></main>
 
-        <a class="corner corner-tr" data-go="dashboard" href="#/dashboard">
-            <span><b>Dashboard</b><small>kondisi sekarang</small></span>
+        <a class="corner corner-tr" id="corner-tr" data-go="dashboard" href="#/dashboard">
+            <span><b id="corner-tr-b">Dashboard</b><small id="corner-tr-s">kondisi sekarang</small></span>
             <i>↗<svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle class="ring-isi" cx="18" cy="18" r="15"/></svg></i>
         </a>
-        <a class="corner corner-bl" data-go="laporan" href="#/laporan">
+        <a class="corner corner-bl" id="corner-bl" data-go="laporan" href="#/laporan">
             <i>↙<svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle class="ring-isi" cx="18" cy="18" r="15"/></svg></i>
-            <span><b>Rekap</b><small>analisis transaksi</small></span>
+            <span><b id="corner-bl-b">Rekap</b><small id="corner-bl-s">analisis transaksi</small></span>
         </a>
 
         <div class="owner-user">
@@ -99,16 +82,16 @@
     <div id="toast-root" class="toast-root"></div>
     <div id="print-area"></div>
 
-    <script src="js/config.js"></script>
-    <script src="js/api.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/scene.js"></script>
-    <script src="js/landing.js"></script>
-    <script src="js/pages/dashboard.js"></script>
-    <script src="js/pages/crud.js"></script>
-    <script src="js/pages/transaksi.js"></script>
-    <script src="js/pages/log.js"></script>
-    <script src="js/owner.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/config.js?v=3d9"></script>
+    <script src="js/api.js?v=3d9"></script>
+    <script src="js/ui.js?v=3d9"></script>
+    <script src="js/scene.js?v=3d9"></script>
+    <script src="js/landing.js?v=3d9"></script>
+    <script src="js/pages/dashboard.js?v=3d9"></script>
+    <script src="js/pages/crud.js?v=3d9"></script>
+    <script src="js/pages/transaksi.js?v=3d9"></script>
+    <script src="js/pages/log.js?v=3d9"></script>
+    <script src="js/owner.js?v=3d9"></script>
+    <script src="js/app.js?v=3d9"></script>
 </body>
 </html>

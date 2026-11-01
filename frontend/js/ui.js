@@ -2,8 +2,10 @@
 // FUNGSI BANTU TAMPILAN: format, ikon, toast, modal, form, cetak
 // ========================================================
 
+// Wadah semua halaman. Diisi oleh file di folder pages/ (Pages.rekap, Pages.transaksi, Pages.master).
 const Pages = {};
 
+// Ikon SVG yang digambar sendiri, supaya tidak perlu library ikon.
 const ICONS = {
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     car: '<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18v3H3z"/><path d="M5 11h14"/>',
@@ -23,7 +25,9 @@ const ICONS = {
     search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>'
 };
 
+// Kumpulan fungsi bantu tampilan yang dipakai semua halaman.
 const UI = {
+    // Hasilkan kode SVG ikon, contoh: UI.icon('print').
     icon(name) {
         return `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
     },
@@ -35,12 +39,20 @@ const UI = {
         ));
     },
 
+    // "mobil" → "Mobil" (data jenis di database huruf kecil)
+    kapital(teks) {
+        const t = String(teks ?? '');
+        return t.charAt(0).toUpperCase() + t.slice(1);
+    },
+
+    // Format angka ke rupiah: 5000 jadi Rp 5.000.
     rupiah(n) {
         return new Intl.NumberFormat('id-ID', {
             style: 'currency', currency: 'IDR', maximumFractionDigits: 0
         }).format(Number(n) || 0);
     },
 
+    // Format tanggal Indonesia, contoh: 1 Nov 2026, 18.11.
     tanggal(value) {
         if (!value) return '-';
         return new Date(value).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
@@ -60,6 +72,7 @@ const UI = {
         return d.toLocaleDateString('sv-SE');
     },
 
+    // Notifikasi kecil di pojok kanan bawah yang hilang sendiri. type: 'ok' atau 'err'.
     toast(message, type = 'ok') {
         const el = document.createElement('div');
         el.className = `toast toast-${type}`;
@@ -98,6 +111,7 @@ const UI = {
         return { el: wrap, close };
     },
 
+    // Pengganti confirm() bawaan browser. Pakai await: hasilnya true kalau pengguna menekan tombol OK.
     confirm(message, okLabel = 'Hapus') {
         return new Promise(resolve => {
             let jawab = false;
@@ -147,6 +161,7 @@ const UI = {
         form.addEventListener('submit', async e => {
             e.preventDefault();
             if (!form.reportValidity()) return;
+            // Kumpulkan isi form jadi objek. Angka diubah ke number, plat diubah ke huruf besar.
             const values = {};
             fields.forEach(f => {
                 let val = form.elements[f.name].value.trim();
@@ -177,102 +192,18 @@ const UI = {
             document.body.classList.remove('printing');
             area.innerHTML = '';
         };
+        // CSS @media print hanya menampilkan #print-area. Setelah dialog cetak ditutup, kembalikan seperti semula.
         window.addEventListener('afterprint', selesai, { once: true });
         window.print();
     },
 
+    // Tampilkan tulisan memuat di dalam elemen.
     loading(el) {
         el.innerHTML = '<div class="empty"><span class="spinner"></span> Memuat data...</div>';
     },
 
+    // Tampilkan pesan error di dalam elemen.
     error(el, err) {
         el.innerHTML = `<div class="empty error-box">${UI.esc(err.message)}</div>`;
-    },
-
-    // Generator urutan slot deterministik agar kotak 3D yang menyala konsisten
-    urutanSlot(n, seed) {
-        const idx = [...Array(n).keys()];
-        let s = seed * 9301 + 49297;
-        for (let i = n - 1; i > 0; i--) {
-            s = (s * 9301 + 49297) % 233280;
-            const j = Math.floor(s / 233280 * (i + 1));
-            [idx[i], idx[j]] = [idx[j], idx[i]];
-        }
-        return idx;
-    },
-
-    // Visualisasi Panggung Parkir Isometrik 3D (dipakai di Dashboard, Transaksi Petugas, & Area Admin)
-    lot3D(areas, { interaktif = false, dipilih = '' } = {}) {
-        if (!areas || !areas.length) return '<div class="empty">Belum ada area parkir.</div>';
-        return `
-            <div class="stage3d-wrap">
-                <div class="stage3d-head">
-                    <div>
-                        <span class="eyebrow-sm">DIGITAL TWIN · 3D ISOMETRIK</span>
-                        <h4>Peta Ruang Slot Parkir Real-Time</h4>
-                    </div>
-                    <div class="o-legend">
-                        <span><i class="lg-off"></i> Kosong</span>
-                        <span><i class="lg-on"></i> Terisi</span>
-                        <span><i class="lg-full"></i> Penuh</span>
-                        ${interaktif ? '<span class="stage3d-hint">· Klik dek area untuk memilih</span>' : '<span class="stage3d-hint">· Gerakkan kursor untuk memutar 3D</span>'}
-                    </div>
-                </div>
-                <div class="stage3d-viewport" data-stage3d>
-                    <div class="stage3d-tilt">
-                        <div class="lot-plane stage3d-plane">
-                            ${areas.map((a, k) => {
-                                const per = Math.max(1, Math.ceil(a.kapasitas / 60));
-                                const kotak = Math.max(1, Math.ceil(a.kapasitas / per));
-                                let nyala = Math.min(kotak, Math.round(a.terisi / per));
-                                if (a.terisi > 0 && nyala === 0) nyala = 1;
-                                const penuh = a.terisi >= a.kapasitas;
-                                const aktif = String(a.id) === String(dipilih);
-                                const urut = UI.urutanSlot(kotak, a.id || k + 1);
-                                const on = new Set(urut.slice(0, nyala));
-                                return `<div class="lot ${penuh ? 'penuh' : ''} ${interaktif ? 'lot-klik' : ''} ${aktif ? 'lot-dipilih' : ''}"
-                                             data-pilih-area="${a.id}" data-penuh="${penuh ? '1' : '0'}"
-                                             style="--cols:${Math.min(8, kotak)}">
-                                    <div class="lot-label">
-                                        <b>${UI.esc(a.kode_area)}</b>
-                                        <span>${UI.esc(a.nama_area)} · ${a.terisi}/${a.kapasitas}${penuh ? ' PENUH' : ''}</span>
-                                        ${per > 1 ? `<small>1 balok = ${per} slot</small>` : ''}
-                                    </div>
-                                    <div class="lot-grid">${[...Array(kotak).keys()].map(i =>
-                                        `<i class="${on.has(i) ? 'on' : ''}" style="--d:${Math.min(i, 45)}"></i>`).join('')}</div>
-                                </div>`;
-                            }).join('')}
-                            <span class="lot-scan"></span>
-                            <span class="lot-streak s1"></span>
-                            <span class="lot-streak s2"></span>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-    },
-
-    // Aktifkan interaksi putar kursor pada elemen [data-stage3d]
-    pasangStage3D(root, onPilihArea) {
-        const vp = root.querySelector('[data-stage3d]');
-        if (!vp) return;
-        vp.addEventListener('pointermove', e => {
-            const r = vp.getBoundingClientRect();
-            const mx = ((e.clientX - r.left) / r.width * 2 - 1).toFixed(3);
-            const my = ((e.clientY - r.top) / r.height * 2 - 1).toFixed(3);
-            vp.style.setProperty('--mx', mx);
-            vp.style.setProperty('--my', my);
-        });
-        vp.addEventListener('pointerleave', () => {
-            vp.style.setProperty('--mx', '0');
-            vp.style.setProperty('--my', '0');
-        });
-        if (onPilihArea) {
-            vp.addEventListener('click', e => {
-                const lot = e.target.closest('[data-pilih-area]');
-                if (!lot || lot.dataset.penuh === '1') return;
-                vp.querySelectorAll('.lot').forEach(x => x.classList.toggle('lot-dipilih', x === lot));
-                onPilihArea(lot.dataset.pilihArea);
-            });
-        }
     }
 };

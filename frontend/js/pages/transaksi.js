@@ -1,217 +1,147 @@
 // ========================================================
-// HALAMAN TRANSAKSI (PETUGAS): kendaraan masuk, keluar, cetak struk
+// HALAMAN TRANSAKSI (PETUGAS): kendaraan masuk, keluar, cetak karcis & struk
+// Isi form tidak ikut hilang saat data diperbarui otomatis.
 // ========================================================
 
-// Template struk thermal (dipakai untuk karcis masuk & bukti bayar)
-const Struk = {
-    baris(label, nilai) {
-        return `<div class="struk-row"><span>${label}</span><b>${UI.esc(nilai)}</b></div>`;
-    },
-
-    karcis(t) {
-        return `<div class="struk">
-            <div class="struk-head"><b>PARKIR BEBAS</b><small>KARCIS MASUK</small></div>
-            <div class="struk-kode">${UI.esc(t.kode_tiket)}</div>
-            ${this.baris('Plat Nomor', t.plat_nomor)}
-            ${this.baris('Jenis', t.jenis_kendaraan)}
-            ${this.baris('Area', `${t.kode_area || ''} ${t.nama_area}`)}
-            ${this.baris('Masuk', UI.tanggal(t.waktu_masuk))}
-            ${this.baris('Tarif', `${UI.rupiah(t.tarif_per_jam)}/jam`)}
-            ${this.baris('Petugas', t.petugas_masuk)}
-            <p class="struk-foot">Simpan karcis ini.<br>Kehilangan karcis menjadi tanggung jawab pemilik.</p>
-        </div>`;
-    },
-
-    bayar(s) {
-        return `<div class="struk">
-            <div class="struk-head"><b>PARKIR BEBAS</b><small>STRUK PEMBAYARAN</small></div>
-            <div class="struk-kode">${UI.esc(s.kode_tiket)}</div>
-            ${this.baris('Plat Nomor', s.plat_nomor)}
-            ${this.baris('Jenis', s.jenis_kendaraan)}
-            ${this.baris('Area', s.nama_area)}
-            ${this.baris('Masuk', UI.tanggal(s.waktu_masuk))}
-            ${this.baris('Keluar', UI.tanggal(s.waktu_keluar))}
-            ${this.baris('Durasi', `${s.durasi_jam} jam`)}
-            ${this.baris('Tarif', `${UI.rupiah(s.tarif_per_jam)}/jam`)}
-            <div class="struk-total"><span>TOTAL</span><b>${UI.rupiah(s.total_bayar)}</b></div>
-            ${this.baris('Petugas', s.petugas_keluar)}
-            <p class="struk-foot">Terima kasih.<br>Hati-hati di jalan!</p>
-        </div>`;
-    },
-
-    // Tampilkan struk di modal 3D + tombol cetak
-    tampil(judul, html) {
-        const m = UI.modal({
-            title: judul,
-            size: 'modal-sm',
-            body: `<div class="struk-3d-stage"><div class="struk-3d-paper">${html}</div></div>`,
-            footer: `<button class="btn" data-close type="button">Tutup</button>
-                     <button class="btn btn-primary" data-cetak type="button">${UI.icon('print')} Cetak</button>`
-        });
-        const stage = m.el.querySelector('.struk-3d-stage');
-        const paper = m.el.querySelector('.struk-3d-paper');
-        stage.addEventListener('pointermove', e => {
-            const r = stage.getBoundingClientRect();
-            const px = (e.clientX - r.left) / r.width - 0.5;
-            const py = (e.clientY - r.top) / r.height - 0.5;
-            paper.style.setProperty('--rx', `${(-py * 14).toFixed(2)}deg`);
-            paper.style.setProperty('--ry', `${(px * 18).toFixed(2)}deg`);
-        });
-        stage.addEventListener('pointerleave', () => {
-            paper.style.setProperty('--rx', '0deg');
-            paper.style.setProperty('--ry', '0deg');
-        });
-        m.el.querySelector('[data-cetak]').addEventListener('click', () => UI.print(html));
-        m.el.querySelector('[data-cetak]').focus();
-    }
-};
-
 Pages.transaksi = async function (page) {
+    const SAPA_KELUAR = 'Cari kode tiket atau plat, atau pilih kendaraan dari daftar di bawah.';
+
     page.innerHTML = `
-        <div id="peta-transaksi-3d"></div>
-
-        <div class="grid-2">
-            <section class="card card-3d">
-                <div class="card-head">
-                    <div>
-                        <span class="eyebrow-sm">GATE CHECK-IN</span>
-                        <h3>Kendaraan Masuk</h3>
-                    </div>
-                    <span class="muted small">Catat lalu cetak karcis</span>
-                </div>
-                <div class="holo-preview">
-                    <div class="holo-plat-3d" id="prv-plat">PLAT NOMOR</div>
-                    <div class="holo-meta">
-                        <span id="prv-jenis">Pilih jenis kendaraan</span>
-                        <b id="prv-area">Pilih atau klik dek 3D area</b>
-                    </div>
-                </div>
-                <form id="form-masuk" class="form">
-                    <label>Plat Nomor
-                        <input name="plat_nomor" list="dl-plat" class="upper" placeholder="Contoh: B 1234 ABC" required autocomplete="off">
-                    </label>
-                    <datalist id="dl-plat"></datalist>
-                    <div class="form-row-2">
-                        <label>Jenis Kendaraan <select name="id_tarif" required></select></label>
-                        <label>Area Parkir <select name="id_area" required></select></label>
-                    </div>
-                    <button class="btn btn-primary btn-block" type="submit">${UI.icon('print')} Simpan & Cetak Karcis</button>
-                </form>
-            </section>
-
-            <section class="card card-3d">
-                <div class="card-head">
-                    <div>
-                        <span class="eyebrow-sm">GATE CHECK-OUT</span>
-                        <h3>Kendaraan Keluar</h3>
-                    </div>
-                    <span class="muted small">Hitung biaya lalu bayar</span>
-                </div>
-                <form id="form-cari" class="form-inline">
-                    <input name="search" placeholder="Ketik kode tiket / plat atau pilih dari tabel..." required autocomplete="off">
-                    <button class="btn btn-primary" type="submit">Cek Biaya</button>
-                </form>
-                <div id="hasil-keluar" class="empty">Masukkan kode tiket atau klik tombol <b>Proses Keluar</b> di tabel bawah.</div>
-            </section>
-        </div>
-
-        <section class="card">
-            <div class="toolbar">
+        <section class="o-rekap o-kerja">
+            <header class="o-head-kecil">
                 <div>
-                    <span class="eyebrow-sm">MONITORING SLOT AKTIF</span>
-                    <h3>Kendaraan Sedang Parkir <span class="badge" id="jml-aktif">0</span></h3>
+                    <p class="o-eyebrow"><span class="live-dot"></span> Pos gerbang</p>
+                    <h1 class="o-judul"><b id="t-aktif">–</b> kendaraan di dalam</h1>
                 </div>
-                <div class="search">${UI.icon('search')}<input type="search" id="cari-aktif" placeholder="Cari plat / tiket..."></div>
+                <dl class="o-ringkas">
+                    <div><dt>Slot kosong</dt><dd id="t-kosong">–</dd></div>
+                    <div><dt>Keluar hari ini</dt><dd id="t-keluar">–</dd></div>
+                    <div><dt>Pendapatan hari ini</dt><dd id="t-pendapatan">–</dd></div>
+                </dl>
+            </header>
+
+            <div class="o-dua">
+                <article class="o-card">
+                    <header><h3>Kendaraan masuk</h3><span>catat lalu cetak karcis</span></header>
+                    <form id="f-masuk" class="form o-form">
+                        <label>Plat nomor
+                            <input name="plat_nomor" list="dl-plat" class="upper" placeholder="Contoh: B 1234 ABC" required autocomplete="off">
+                        </label>
+                        <datalist id="dl-plat"></datalist>
+                        <div class="o-form-dua">
+                            <label>Jenis kendaraan <select name="id_tarif" required></select></label>
+                            <label>Area parkir <select name="id_area" required></select></label>
+                        </div>
+                        <button class="btn-glow" type="submit">${UI.icon('print')} Simpan & cetak karcis</button>
+                    </form>
+                </article>
+
+                <article class="o-card">
+                    <header><h3>Kendaraan keluar</h3><span>hitung biaya lalu bayar</span></header>
+                    <form id="f-keluar" class="form-inline o-form">
+                        <input name="q" placeholder="Kode tiket atau plat nomor" required autocomplete="off" aria-label="Kode tiket atau plat nomor">
+                        <button class="o-btn" type="submit">Cek biaya</button>
+                    </form>
+                    <div id="box-keluar"><p class="o-note">${SAPA_KELUAR}</p></div>
+                </article>
             </div>
-            <div id="tabel-aktif"></div>
+
+            <article class="o-card o-card-tabel">
+                <header>
+                    <h3>Daftar kendaraan di dalam</h3>
+                    <input type="search" id="cari-aktif" class="o-cari" placeholder="Saring plat / tiket..." aria-label="Saring kendaraan">
+                </header>
+                <div class="o-table" id="tabel-aktif"></div>
+            </article>
         </section>`;
 
-    const petaEl = page.querySelector('#peta-transaksi-3d');
-    const formMasuk = page.querySelector('#form-masuk');
-    const formCari = page.querySelector('#form-cari');
-    const hasil = page.querySelector('#hasil-keluar');
-    const tabelAktif = page.querySelector('#tabel-aktif');
-    const cariAktif = page.querySelector('#cari-aktif');
-    let tarif = [], areas = [], kendaraan = [], aktif = [];
+    const fMasuk = page.querySelector('#f-masuk');
+    const fKeluar = page.querySelector('#f-keluar');
+    const box = page.querySelector('#box-keluar');
+    const tabel = page.querySelector('#tabel-aktif');
+    const cari = page.querySelector('#cari-aktif');
+    let tarif = [], kendaraan = [], aktif = [];
 
-    function updatePreview() {
-        const plat = formMasuk.plat_nomor.value.trim().toUpperCase() || 'PLAT NOMOR';
-        const t = tarif.find(x => String(x.id) === String(formMasuk.id_tarif.value));
-        const a = areas.find(x => String(x.id) === String(formMasuk.id_area.value));
-        page.querySelector('#prv-plat').textContent = plat;
-        page.querySelector('#prv-jenis').textContent = t ? `${t.jenis_kendaraan} · ${UI.rupiah(t.tarif_per_jam)}/jam` : 'Pilih jenis kendaraan';
-        page.querySelector('#prv-area').textContent = a ? `Area ${a.kode_area} (${a.nama_area})` : 'Pilih atau klik dek 3D area';
+    // Ganti isi dropdown tanpa menghilangkan pilihan yang sedang dipilih petugas.
+    function isiPilihan(select, kosong, html) {
+        const nilai = select.value;
+        select.innerHTML = `<option value="">${kosong}</option>${html}`;
+        select.value = nilai;
     }
 
-    // ---------- Data pilihan form masuk ----------
-    async function loadPilihan() {
+    // Gambar daftar kendaraan di dalam, sesuai kata di kotak saring.
+    function gambarTabel() {
+        const q = cari.value.trim().toLowerCase();
+        const list = q ? aktif.filter(x => `${x.plat_nomor} ${x.kode_tiket} ${x.nama_area}`.toLowerCase().includes(q)) : aktif;
+        tabel.innerHTML = list.length ? `<table>
+            <thead><tr><th>Plat</th><th>Kode Tiket</th><th>Jenis</th><th>Area</th><th>Masuk</th><th>Lama</th><th class="right">Aksi</th></tr></thead>
+            <tbody>${list.map(x => `<tr>
+                <td><span class="plat">${UI.esc(x.plat_nomor)}</span></td>
+                <td class="mono">${UI.esc(x.kode_tiket)}</td>
+                <td>${UI.esc(UI.kapital(x.jenis_kendaraan))}</td>
+                <td>${UI.esc(x.nama_area)}</td>
+                <td>${UI.tanggal(x.waktu_masuk)}</td>
+                <td>${UI.lama(x.waktu_masuk)}</td>
+                <td class="right"><button class="o-btn o-btn-kecil" data-keluar="${UI.esc(x.kode_tiket)}" type="button">Proses keluar</button></td>
+            </tr>`).join('')}</tbody>
+        </table>` : `<p class="o-kosong">${q ? 'Tidak ada yang cocok.' : 'Belum ada kendaraan di dalam.'}</p>`;
+    }
+
+    // Ambil data terbaru. Hanya angka, dropdown, dan tabel yang diperbarui, jadi form yang sedang diisi aman.
+    async function muat() {
         try {
-            const [t, a, k] = await Promise.all([
-                api.get('/tarif'), api.get('/area'), api.get('/kendaraan').catch(() => ({ data: [] }))
+            const [s, t, a, k, m] = await Promise.all([
+                api.get('/stats'), api.get('/tarif'), api.get('/area'),
+                api.get('/kendaraan').catch(() => ({ data: [] })), api.get('/transaksi/aktif')
             ]);
-            tarif = t.data;
-            areas = a.data;
-            kendaraan = k.data;
+            if (Panel.halaman !== 'transaksi') return;
+            tarif = t.data; kendaraan = k.data; aktif = m.data;
 
-            const tarifDipilih = formMasuk.id_tarif.value;
-            formMasuk.id_tarif.innerHTML = '<option value="">— Pilih jenis —</option>' + tarif.map(x =>
-                `<option value="${x.id}">${UI.esc(x.jenis_kendaraan)} (${UI.rupiah(x.tarif_per_jam)}/jam)</option>`).join('');
-            formMasuk.id_tarif.value = tarifDipilih;
+            page.querySelector('#t-aktif').textContent = s.parkir_aktif;
+            page.querySelector('#t-kosong').textContent = Math.max(0, s.kapasitas_total - s.kapasitas_terisi);
+            page.querySelector('#t-keluar').textContent = s.transaksi_hari_ini;
+            page.querySelector('#t-pendapatan').textContent = UI.rupiah(s.pendapatan_hari_ini);
 
-            const areaDipilih = formMasuk.id_area.value;
-            formMasuk.id_area.innerHTML = '<option value="">— Pilih area —</option>' + areas.map(x => {
-                const sisa = x.kapasitas - x.terisi;
-                return `<option value="${x.id}" ${sisa <= 0 ? 'disabled' : ''}>${UI.esc(x.kode_area)} · ${UI.esc(x.nama_area)} (sisa ${Math.max(0, sisa)})</option>`;
-            }).join('');
-            formMasuk.id_area.value = areaDipilih;
-
-            petaEl.innerHTML = UI.lot3D(areas, { interaktif: true, dipilih: formMasuk.id_area.value });
-            UI.pasangStage3D(petaEl, idArea => {
-                formMasuk.id_area.value = idArea;
-                updatePreview();
-            });
-
+            isiPilihan(fMasuk.id_tarif, 'Pilih jenis', tarif.map(x =>
+                `<option value="${x.id}">${UI.esc(UI.kapital(x.jenis_kendaraan))} · ${UI.rupiah(x.tarif_per_jam)}/jam</option>`).join(''));
+            isiPilihan(fMasuk.id_area, 'Pilih area', a.data.map(x => {
+                const sisa = Math.max(0, x.kapasitas - x.terisi);
+                return `<option value="${x.id}" ${sisa === 0 ? 'disabled' : ''}>${UI.esc(x.nama_area)} · ${sisa ? `sisa ${sisa}` : 'penuh'}</option>`;
+            }).join(''));
             page.querySelector('#dl-plat').innerHTML = kendaraan.map(x =>
-                `<option value="${UI.esc(x.plat_nomor)}">${UI.esc(x.jenis_kendaraan)} · ${UI.esc(x.pemilik)}</option>`).join('');
-            updatePreview();
+                `<option value="${UI.esc(x.plat_nomor)}">${UI.esc(UI.kapital(x.jenis_kendaraan))} · ${UI.esc(x.pemilik)}</option>`).join('');
+
+            Panel.gambarLot(a.data);
+            gambarTabel();
         } catch (err) {
-            UI.toast(err.message, 'err');
+            tabel.innerHTML = `<p class="o-note err">${UI.esc(err.message)}</p>`;
         }
     }
 
-    // Kalau plat terdaftar di master kendaraan, jenisnya dipilih otomatis
-    formMasuk.plat_nomor.addEventListener('input', () => {
-        const plat = formMasuk.plat_nomor.value.trim().toUpperCase();
+    // Plat yang terdaftar langsung memilih jenis kendaraannya
+    fMasuk.plat_nomor.addEventListener('input', () => {
+        const plat = fMasuk.plat_nomor.value.trim().toUpperCase();
         const k = kendaraan.find(x => x.plat_nomor === plat);
-        if (k) {
-            const t = tarif.find(x => x.jenis_kendaraan.toLowerCase() === k.jenis_kendaraan.toLowerCase());
-            if (t) formMasuk.id_tarif.value = t.id;
-        }
-        updatePreview();
-    });
-    formMasuk.id_tarif.addEventListener('change', updatePreview);
-    formMasuk.id_area.addEventListener('change', () => {
-        petaEl.querySelectorAll('.lot').forEach(el =>
-            el.classList.toggle('lot-dipilih', el.dataset.pilihArea === formMasuk.id_area.value));
-        updatePreview();
+        const t = k && tarif.find(x => x.jenis_kendaraan.toLowerCase() === k.jenis_kendaraan.toLowerCase());
+        if (t) fMasuk.id_tarif.value = t.id;
     });
 
-    formMasuk.addEventListener('submit', async e => {
+    // Simpan kendaraan masuk. Tombol dimatikan sementara supaya tidak terkirim dua kali.
+    fMasuk.addEventListener('submit', async e => {
         e.preventDefault();
-        const btn = formMasuk.querySelector('[type=submit]');
+        const btn = fMasuk.querySelector('[type=submit]');
         btn.disabled = true;
         try {
             const res = await api.post('/transaksi/masuk', {
-                plat_nomor: formMasuk.plat_nomor.value.trim().toUpperCase(),
-                id_tarif: Number(formMasuk.id_tarif.value),
-                id_area: Number(formMasuk.id_area.value),
-                petugas: Auth.user.username
+                plat_nomor: fMasuk.plat_nomor.value.trim().toUpperCase(),
+                id_tarif: Number(fMasuk.id_tarif.value),
+                id_area: Number(fMasuk.id_area.value),
+                id_user: Auth.user.id
             });
             UI.toast(res.message);
-            formMasuk.reset();
-            Struk.tampil('Karcis Masuk', Struk.karcis(res.tiket));
-            loadPilihan();
-            loadAktif();
+            fMasuk.reset();
+            Struk.tampil('Karcis masuk', Struk.karcis(res.tiket), res.tiket);
+            muat();
         } catch (err) {
             UI.toast(err.message, 'err');
         } finally {
@@ -219,104 +149,72 @@ Pages.transaksi = async function (page) {
         }
     });
 
-    // ---------- Kendaraan keluar ----------
+    // Kembalikan kotak kendaraan keluar ke kondisi awal.
+    function bersihkanKeluar() {
+        fKeluar.reset();
+        box.innerHTML = `<p class="o-note">${SAPA_KELUAR}</p>`;
+    }
+
+    // Tampilkan rincian biaya. Pembayaran baru terjadi setelah petugas menekan tombol bayar.
     async function cekBiaya(search) {
-        hasil.className = '';
-        UI.loading(hasil);
+        box.innerHTML = '<p class="o-note"><span class="spinner"></span> Menghitung biaya...</p>';
         try {
             const { transaksi: t, estimasi: est } = await api.post('/transaksi/hitung-keluar', { search });
-            hasil.innerHTML = `
+            box.innerHTML = `
                 <div class="detail">
                     <div class="detail-head">
                         <span class="plat">${UI.esc(t.plat_nomor)}</span>
-                        <span class="muted small">${UI.esc(t.kode_tiket)}</span>
+                        <span class="mono small">${UI.esc(t.kode_tiket)}</span>
                     </div>
                     <dl>
-                        <dt>Jenis</dt><dd>${UI.esc(t.jenis_kendaraan)}</dd>
-                        <dt>Area</dt><dd>${UI.esc(t.kode_area)} · ${UI.esc(t.nama_area)}</dd>
+                        <dt>Jenis</dt><dd>${UI.esc(UI.kapital(t.jenis_kendaraan))}</dd>
+                        <dt>Area</dt><dd>${UI.esc(t.nama_area)}</dd>
                         <dt>Masuk</dt><dd>${UI.tanggal(t.waktu_masuk)}</dd>
-                        <dt>Durasi</dt><dd>${est.durasi_jam} jam <span class="muted">(${UI.lama(t.waktu_masuk)})</span></dd>
-                        <dt>Tarif</dt><dd>${UI.rupiah(t.tarif_per_jam)}/jam${t.tarif_maksimal > 0 ? ` · maks ${UI.rupiah(t.tarif_maksimal)}` : ''}</dd>
+                        <dt>Lama</dt><dd>${UI.lama(t.waktu_masuk)} · dihitung ${est.durasi_jam} jam</dd>
                     </dl>
-                    <div class="total"><span>Total Bayar</span><b>${UI.rupiah(est.total_bayar)}</b></div>
-                    <button class="btn btn-primary btn-block" id="btn-bayar" type="button">Terima Pembayaran & Cetak Struk</button>
+                    <div class="total"><span>Total bayar</span><b>${UI.rupiah(est.total_bayar)}</b></div>
+                    <div class="detail-aksi">
+                        <button class="o-btn ghost" id="btn-batal-bayar" type="button">Batal</button>
+                        <button class="btn-glow" id="btn-bayar" type="button">${UI.icon('print')} Terima bayar & cetak struk</button>
+                    </div>
                 </div>`;
-
-            hasil.querySelector('#btn-bayar').addEventListener('click', async ev => {
-                ev.target.disabled = true;
+            box.querySelector('#btn-batal-bayar').addEventListener('click', bersihkanKeluar);
+            box.querySelector('#btn-bayar').addEventListener('click', async ev => {
+                const btn = ev.currentTarget;
+                btn.disabled = true;
                 try {
-                    const res = await api.post('/transaksi/bayar', {
-                        id: t.id,
-                        durasi_jam: est.durasi_jam,
-                        total_bayar: est.total_bayar,
-                        petugas: Auth.user.username
-                    });
+                    const res = await api.post('/transaksi/bayar', { id: t.id, id_user: Auth.user.id });
                     UI.toast(res.message);
-                    Struk.tampil('Struk Pembayaran', Struk.bayar(res.struk));
-                    formCari.reset();
-                    hasil.className = 'empty';
-                    hasil.textContent = 'Masukkan kode tiket atau plat nomor kendaraan.';
-                    loadPilihan();
-                    loadAktif();
+                    bersihkanKeluar();
+                    Struk.tampil('Struk pembayaran', Struk.bayar(res.struk), res.struk);
+                    muat();
                 } catch (err) {
                     UI.toast(err.message, 'err');
-                    ev.target.disabled = false;
+                    btn.disabled = false;
                 }
             });
         } catch (err) {
-            hasil.className = 'empty error-box';
-            hasil.textContent = err.message;
+            box.innerHTML = `<p class="o-note err">${UI.esc(err.message)}</p>`;
         }
     }
 
-    formCari.addEventListener('submit', e => {
+    // Cari kendaraan lewat kode tiket atau plat.
+    fKeluar.addEventListener('submit', e => {
         e.preventDefault();
-        cekBiaya(formCari.search.value.trim());
+        cekBiaya(fKeluar.q.value.trim());
     });
-
-    // ---------- Daftar kendaraan di dalam ----------
-    async function loadAktif() {
-        try {
-            aktif = (await api.get('/transaksi/aktif')).data;
-            drawAktif();
-        } catch (err) {
-            UI.error(tabelAktif, err);
-        }
-    }
-
-    function drawAktif() {
-        page.querySelector('#jml-aktif').textContent = aktif.length;
-        const q = cariAktif.value.trim().toLowerCase();
-        const list = q ? aktif.filter(x => (x.plat_nomor + ' ' + x.kode_tiket).toLowerCase().includes(q)) : aktif;
-
-        if (!list.length) {
-            tabelAktif.innerHTML = `<div class="empty">${q ? 'Tidak ditemukan.' : 'Tidak ada kendaraan di dalam.'}</div>`;
-            return;
-        }
-        tabelAktif.innerHTML = `
-            <div class="table-wrap"><table>
-                <thead><tr><th>Kode Tiket</th><th>Plat</th><th>Jenis</th><th>Area</th><th>Masuk</th><th>Lama</th><th class="aksi"></th></tr></thead>
-                <tbody>${list.map(x => `<tr>
-                    <td data-label="Kode Tiket" class="mono">${UI.esc(x.kode_tiket)}</td>
-                    <td data-label="Plat"><span class="plat">${UI.esc(x.plat_nomor)}</span></td>
-                    <td data-label="Jenis">${UI.esc(x.jenis_kendaraan)}</td>
-                    <td data-label="Area">${UI.esc(x.kode_area)}</td>
-                    <td data-label="Masuk">${UI.tanggal(x.waktu_masuk)}</td>
-                    <td data-label="Lama">${UI.lama(x.waktu_masuk)}</td>
-                    <td class="aksi"><button class="btn btn-sm" data-keluar="${UI.esc(x.kode_tiket)}" type="button">Proses Keluar</button></td>
-                </tr>`).join('')}</tbody>
-            </table></div>`;
-    }
-
-    cariAktif.addEventListener('input', drawAktif);
-    tabelAktif.addEventListener('click', e => {
-        const btn = e.target.closest('[data-keluar]');
-        if (!btn) return;
-        formCari.search.value = btn.dataset.keluar;
-        cekBiaya(btn.dataset.keluar);
-        formCari.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Satu event di tabel untuk semua tombol Proses keluar, cukup cek tombol mana yang ditekan.
+    tabel.addEventListener('click', e => {
+        const b = e.target.closest('[data-keluar]');
+        if (!b) return;
+        fKeluar.q.value = b.dataset.keluar;
+        cekBiaya(b.dataset.keluar);
+        fKeluar.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
+    cari.addEventListener('input', gambarTabel);
 
-    loadPilihan();
-    loadAktif();
+    // Muat data pertama, fokus ke kolom plat, lalu perbarui otomatis tiap 15 detik.
+    await muat();
+    fMasuk.plat_nomor.focus();
+    Panel.ulang(muat, 15000);
 };

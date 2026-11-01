@@ -4,6 +4,7 @@
 // Tanpa blok/pil tombol kaku & tanpa judul.
 // ========================================================
 
+// Tiga pintu masuk: nama role, label, dan posisi di layar untuk pesan error.
 const PINTU = [
     { role: 'owner', label: 'Owner', posisi: 'ujung atas' },
     { role: 'petugas', label: 'Petugas', posisi: 'ujung kiri bawah' },
@@ -18,6 +19,7 @@ const Landing = (() => {
 
     const portal = role => view.querySelector(`.portal[data-role="${role}"]`);
 
+    // Bikin form login untuk tiap pintu.
     function bangun() {
         view.querySelector('#portals').innerHTML = PINTU.map(p => `
             <section class="portal portal-${p.role}" data-role="${p.role}">
@@ -27,13 +29,14 @@ const Landing = (() => {
                 <form class="portal-card" autocomplete="on" novalidate>
                     <p class="embun-role">${p.label}</p>
                     <label><span>Username</span><input name="username" placeholder="ketik username..." autocomplete="username" required></label>
-                    <label><span>Kode</span><input name="password" type="password" placeholder="ketik kode..." autocomplete="current-password" required></label>
+                    <label><span>Password</span><input name="password" type="password" placeholder="ketik password..." autocomplete="current-password" required></label>
                     <p class="form-error" hidden></p>
                     <button class="embun-submit" type="submit">Masuk ${p.label} →</button>
                 </form>
             </section>`).join('');
     }
 
+    // Aktifkan satu pintu: form muncul, kamera 3D ikut berpindah. z = null berarti tidak ada yang aktif.
     function setZona(z) {
         if (z === zona) return;
         zona = z;
@@ -60,6 +63,7 @@ const Landing = (() => {
         return form.contains(document.activeElement) || [...form.elements].some(el => el.value && el.tagName === 'INPUT');
     }
 
+    // Kosongkan semua form dan hilangkan pesan error.
     function reset() {
         view.querySelectorAll('.portal form').forEach(f => {
             f.reset();
@@ -68,6 +72,7 @@ const Landing = (() => {
         document.activeElement?.blur();
     }
 
+    // Dijalankan tiap kursor bergerak: gerakkan kamera lalu tentukan pintu yang aktif.
     function onMove(e) {
         Scene.setMouse(e.clientX / view.clientWidth * 2 - 1, e.clientY / view.clientHeight * 2 - 1);
         if (e.target.closest('.portal-card') || terkunci()) return;
@@ -85,6 +90,7 @@ const Landing = (() => {
         card.style.setProperty('--gy', `${(py + 0.5) * 100}%`);
     }
 
+    // Kirim login ke backend. Kalau akunnya benar tapi pintunya salah, tolak dan beri tahu pintu yang benar.
     async function login(e, role) {
         e.preventDefault();
         const form = e.target;
@@ -114,6 +120,7 @@ const Landing = (() => {
         }
     }
 
+    // Pasang semua event. callback = fungsi yang dijalankan setelah login berhasil.
     function init(callback) {
         onLogin = callback;
         bangun();
@@ -124,7 +131,14 @@ const Landing = (() => {
             setZona(zonaDari(e.clientX, e.clientY));
         });
         document.addEventListener('keydown', e => {
-            if (e.key === 'Escape' && !view.hidden) { reset(); setZona(null); }
+            if (view.hidden) return;
+            if (e.key === 'Escape') { reset(); setZona(null); return; }
+            // Tanpa mouse: panah atas = Owner, kiri = Petugas, kanan = Admin
+            const role = { ArrowUp: 'owner', ArrowLeft: 'petugas', ArrowRight: 'admin' }[e.key];
+            if (role && !terkunci()) {
+                setZona(role);
+                setTimeout(() => portal(role).querySelector('input').focus(), 60);
+            }
         });
 
         PINTU.forEach(p => {
@@ -141,11 +155,13 @@ const Landing = (() => {
 
     return {
         init,
+        // Tampilkan landing dan nyalakan latar 3D. Kalau WebGL tidak ada, pakai latar cadangan.
         show() {
             view.hidden = false;
             setZona(null);
             if (!Scene.start(canvas)) view.classList.add('no-webgl');
         },
+        // Sembunyikan landing dan hentikan animasi supaya hemat CPU.
         hide() {
             view.hidden = true;
             Scene.stop();

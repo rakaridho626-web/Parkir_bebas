@@ -8,7 +8,10 @@
 // 5. Pejalan kaki di trotoar sekitar gedung dan area parkir
 // ========================================================
 
+// Cara kerja singkat: semua benda digambar sebagai garis dan titik lewat WebGL.
+// Tiap frame: update() menggerakkan benda, gambar() menampilkannya ke canvas.
 const Scene = (() => {
+    // Warna aksen tiap zona (RGB 0 sampai 1). none = kursor di tengah.
     const WARNA = {
         none: [0.34, 0.62, 1.00],
         owner: [0.70, 0.56, 1.00],
@@ -16,6 +19,8 @@ const Scene = (() => {
         admin: [0.42, 0.70, 1.00]
     };
 
+    // Posisi kamera tiap zona. yaw = putar kiri-kanan, pitch = sudut dari atas,
+    // dist = jarak, tx/tz = titik yang dilihat.
     const KAMERA = {
         none: { yaw: 0.20, pitch: 0.44, dist: 33, tx: 0, tz: -1 },
         owner: { yaw: 0, pitch: 1.02, dist: 46, tx: 0, tz: -6 },
@@ -23,12 +28,14 @@ const Scene = (() => {
         admin: { yaw: 0.58, pitch: 0.42, dist: 26, tx: 4, tz: -3 }
     };
 
+    // Ukuran area parkir: lebar slot, panjang slot, setengah lebar jalan, jumlah slot per baris.
     const SLOT_W = 2.8, SLOT_D = 5.5, LANE = 3.2, N_SLOT = 14;
     const X0 = -N_SLOT * SLOT_W / 2;
     const X1 = X0 + N_SLOT * SLOT_W;
     const GERBANG = [-26, 26];
     const LAJU = 7.5;
 
+    // gl = konteks WebGL, prog = program shader, u = lokasi variabel shader.
     let gl, canvas, prog, u = {};
     let bufDots, bufStatis, bufDinamis, nDots = 0, nStatis = 0;
     let running = false, last = 0, waktu = 0, spawnTimer = 0;
@@ -44,11 +51,13 @@ const Scene = (() => {
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ---------- Matriks (column-major) ----------
+    // Matriks perspektif: benda jauh terlihat lebih kecil.
     function perspective(fov, asp, n, f) {
         const t = 1 / Math.tan(fov / 2), nf = 1 / (n - f);
         return [t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) * nf, -1, 0, 0, 2 * f * n * nf, 0];
     }
 
+    // Matriks kamera: e = posisi mata, c = titik yang dilihat.
     function lookAt(e, c) {
         let zx = e[0] - c[0], zy = e[1] - c[1], zz = e[2] - c[2];
         let l = Math.hypot(zx, zy, zz); zx /= l; zy /= l; zz /= l;
@@ -59,6 +68,7 @@ const Scene = (() => {
             -(xx * e[0] + xy * e[1] + xz * e[2]), -(yx * e[0] + yy * e[1] + yz * e[2]), -(zx * e[0] + zy * e[1] + zz * e[2]), 1];
     }
 
+    // Perkalian dua matriks 4x4.
     function kali(a, b) {
         const o = new Float32Array(16);
         for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
@@ -70,18 +80,21 @@ const Scene = (() => {
     }
 
     // ---------- Geometri Dasar ----------
+    // Tambah 12 garis rusuk sebuah kotak ke daftar s.
     function kotak(s, x0, x1, y0, y1, z0, z1) {
         const p = [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]];
         [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]
             .forEach(([a, b]) => s.push([...p[a], ...p[b]]));
     }
 
+    // Tambah garis kabin mobil (atas lebih sempit dari bawah).
     function kabin(s, bx0, bx1, tx0, tx1, y0, y1, w) {
         const p = [[bx0, y0, -w], [bx1, y0, -w], [bx1, y0, w], [bx0, y0, w], [tx0, y1, -w * .82], [tx1, y1, -w * .82], [tx1, y1, w * .82], [tx0, y1, w * .82]];
         [[4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]
             .forEach(([a, b]) => s.push([...p[a], ...p[b]]));
     }
 
+    // Tambah roda berbentuk segi delapan.
     function roda(s, cx, cy, cz, r) {
         for (let i = 0; i < 10; i++) {
             const a = i / 10 * Math.PI * 2, b = (i + 1) / 10 * Math.PI * 2;
@@ -129,6 +142,7 @@ const Scene = (() => {
         [-0.65, 0.88, 0, 0.12, 0.92, 0]
     );
 
+    // Pilih bentuk kendaraan secara acak.
     const pilihModel = () => {
         const r = Math.random();
         if (r < 0.20) return MOTOR;
@@ -137,8 +151,10 @@ const Scene = (() => {
     };
 
     // ---------- Helper Gambar Gedung 3D di Sekeliling ----------
+    // Tambah satu garis: titik a ke titik b dengan warna c.
     function garis(arr, a, b, c) { arr.push(...a, ...c, ...b, ...c); }
 
+    // Gambar gedung: garis lantai, kolom kaca, dan atap.
     function buatGedung(L, x0, x1, z0, z1, tinggi, lantaiStep, cUtama, cDalam, punyaMenara = false) {
         const g = [];
         kotak(g, x0, x1, 0, tinggi, z0, z1);
@@ -183,6 +199,7 @@ const Scene = (() => {
     }
 
     // ---------- Buffer Statis: Kompleks Parkir + Gedung Sekeliling + Trotoar ----------
+    // Bangun semua benda yang tidak bergerak. Cukup sekali, lalu disimpan ke memori GPU supaya ringan.
     function bangunStatis() {
         const dots = [];
         for (let x = -72; x <= 72; x += 1.6) for (let z = -52; z <= 46; z += 1.6) {
@@ -234,7 +251,7 @@ const Scene = (() => {
         buatGedung(L, 35, 48, -19, -7, 16.0, 2.3, gedungUtama, gedungDalam, true);
         buatGedung(L, 36, 48, 7, 19, 12.5, 2.3, gedungUtama, gedungDalam, false);
 
-        // D. Kawasan Gedung Selatan / Depan (Bangunan Rendah & Plaza Sepeda ताकि tidak menghalangi kamera)
+        // D. Kawasan Gedung Selatan / Depan (Bangunan Rendah & Plaza Sepeda, supaya tidak menghalangi kamera)
         buatGedung(L, -34, -20, 15.5, 23, 6.6, 2.2, struktur, gedungDalam, false);
         buatGedung(L, 20, 34, 15.5, 23, 6.6, 2.2, struktur, gedungDalam, false);
 
@@ -320,8 +337,10 @@ const Scene = (() => {
     }
 
     // ---------- Simulasi Kendaraan, Orang Keluar Mobil, Pesepeda, & Petugas ----------
+    // Posisi z tengah slot. s.sg = -1 baris utara, +1 baris selatan.
     const zSlot = s => s.sg * (LANE + SLOT_D / 2);
 
+    // Pilih slot kosong acak, lalu buat kendaraan beserta rute ke slot itu.
     function buatKendaraanMasuk(xMulai = -50) {
         const kosong = slots.filter(s => !s.isi);
         if (!kosong.length) return;
@@ -365,6 +384,7 @@ const Scene = (() => {
         });
     }
 
+    // Isi awal saat scene dibuka: kendaraan, petugas, pesepeda, dan pejalan kaki.
     function isiAwal() {
         slots.length = 0;
         kendaraan.length = 0;
@@ -440,6 +460,7 @@ const Scene = (() => {
         }
     }
 
+    // Selisih sudut terpendek, supaya kendaraan belok lewat arah terdekat.
     function selisihSudut(a, b) {
         let d = a - b;
         while (d > Math.PI) d -= Math.PI * 2;
@@ -447,6 +468,7 @@ const Scene = (() => {
         return d;
     }
 
+    // Gerakkan v mengikuti titik rute (v.path). Hasilnya true kalau sudah sampai titik terakhir.
     function jalan(v, dt) {
         let sisa = (v.laju || LAJU) * dt * (v.mundur ? 0.5 : 1);
         while (sisa > 0 && v.i < v.path.length - 1) {
@@ -461,6 +483,7 @@ const Scene = (() => {
         return v.i >= v.path.length - 1;
     }
 
+    // Perbarui posisi semua benda. dt = detik sejak frame sebelumnya, supaya kecepatan sama di semua komputer.
     function update(dt) {
         spawnTimer -= dt;
         const bergerak = kendaraan.filter(v => !v.diam);
@@ -557,6 +580,7 @@ const Scene = (() => {
     // ---------- Gambar Karakter 3D (Orang, Petugas, & Pesepeda) ----------
     let dinamis = new Float32Array(90000);
 
+    // Susun garis benda yang bergerak. Dijalankan tiap frame.
     function bangunDinamis() {
         let n = 0;
         const tulis = (x, y, z, c) => {
@@ -799,11 +823,13 @@ const Scene = (() => {
         return n / 7;
     }
 
+    // Tiap titik = 7 angka: posisi (x, y, z) + warna (r, g, b, a).
     function pasangAtribut() {
         gl.vertexAttribPointer(u.aPos, 3, gl.FLOAT, false, 28, 0);
         gl.vertexAttribPointer(u.aCol, 4, gl.FLOAT, false, 28, 12);
     }
 
+    // Gambar satu frame: atur kamera, lalu titik lantai, benda diam, benda bergerak.
     function gambar() {
         const w = canvas.clientWidth, h = canvas.clientHeight;
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -848,6 +874,7 @@ const Scene = (() => {
         gl.drawArrays(gl.LINES, 0, nDin);
     }
 
+    // Loop animasi, dipanggil browser sekitar 60 kali per detik. dt dibatasi supaya tidak lompat setelah tab ditinggal.
     function frame(now) {
         if (!running) return;
         const dt = Math.min(0.05, (now - last) / 1000 || 0);
@@ -892,6 +919,7 @@ const Scene = (() => {
             gl_FragColor = c;
         }`;
 
+    // Compile kode shader. Kalau ada error, lemparkan pesannya.
     function shader(type, src) {
         const s = gl.createShader(type);
         gl.shaderSource(s, src);
@@ -900,6 +928,7 @@ const Scene = (() => {
         return s;
     }
 
+    // Siapkan WebGL. Hasilnya false kalau browser tidak mendukung.
     function init(cv) {
         canvas = cv;
         gl = canvas.getContext('webgl', { antialias: true, alpha: true });
@@ -925,6 +954,7 @@ const Scene = (() => {
     }
 
     return {
+        // Mulai animasi. Hasilnya false kalau WebGL tidak tersedia.
         start(cv) {
             if (!gl && !init(cv)) return false;
             if (running) return true;
@@ -933,8 +963,11 @@ const Scene = (() => {
             requestAnimationFrame(frame);
             return true;
         },
+        // Hentikan animasi.
         stop() { running = false; },
+        // Pindahkan kamera ke zona owner, petugas, atau admin.
         setZona(z) { zona = z || 'none'; },
+        // Posisi kursor -1 sampai 1, untuk efek kamera bergeser.
         setMouse(x, y) { mouse.x = x; mouse.y = y; }
     };
 })();

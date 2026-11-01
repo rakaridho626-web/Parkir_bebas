@@ -7,63 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;600&display=swap">
-    <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
-
-    <!-- LANDING PAGE + LOGIN (kursor: atas = Owner, kiri bawah = Petugas, kanan bawah = Admin) -->
-    <div id="login-view" class="landing" hidden>
-        <canvas id="scene" aria-hidden="true"></canvas>
-        <div class="landing-vignette"></div>
-
-        <div class="landing-hero">
-            <p class="eyebrow">Sistem Manajemen Parkir</p>
-            <h1>Parkir<br><span>Bebas</span></h1>
-            <p class="landing-hint">Arahkan kursor ke ujung layar untuk masuk</p>
-        </div>
-
-        <div id="portals"></div>
-    </div>
-
-    <!-- PANEL UTAMA: pojok kanan atas = Dashboard, pojok kiri bawah = halaman kerja tiap role -->
-    <div id="owner-view" class="owner" hidden>
-        <div class="lot-stage" aria-hidden="true">
-            <div class="lot-tilt"><div class="lot-plane" id="lot-plane"></div></div>
-        </div>
-        <div class="owner-vignette"></div>
-
-        <main id="owner-page" class="owner-page"></main>
-
-        <a class="corner corner-tr" id="corner-tr" data-go="dashboard" href="#/dashboard">
-            <span><b id="corner-tr-b">Dashboard</b><small id="corner-tr-s">kondisi sekarang</small></span>
-            <i>↗<svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle class="ring-isi" cx="18" cy="18" r="15"/></svg></i>
-        </a>
-        <a class="corner corner-bl" id="corner-bl" data-go="laporan" href="#/laporan">
-            <i>↙<svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle class="ring-isi" cx="18" cy="18" r="15"/></svg></i>
-            <span><b id="corner-bl-b">Rekap</b><small id="corner-bl-s">analisis transaksi</small></span>
-        </a>
-
-        <div class="owner-user" id="owner-user">
-            <span class="owner-nama"><span id="owner-name"></span><button type="button" id="owner-logout">Keluar</button></span>
-            <span class="owner-inisial" id="owner-inisial" aria-hidden="true"></span>
-        </div>
-    </div>
-
-    <div id="modal-root"></div>
-    <div id="toast-root" class="toast-root"></div>
+    <div id="app"></div>
     <div id="print-area"></div>
-
-    <script src="js/config.js?v=4"></script>
-    <script src="js/api.js?v=4"></script>
-    <script src="js/ui.js?v=4"></script>
-    <script src="js/visual.js?v=4"></script>
-    <script src="js/struk.js?v=4"></script>
-    <script src="js/scene.js?v=4"></script>
-    <script src="js/landing.js?v=4"></script>
-    <script src="js/pages/transaksi.js?v=4"></script>
-    <script src="js/pages/rekap.js?v=4"></script>
-    <script src="js/pages/master.js?v=4"></script>
-    <script src="js/panel.js?v=4"></script>
-    <script src="js/app.js?v=4"></script>
+    <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

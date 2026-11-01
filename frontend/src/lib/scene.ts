@@ -10,9 +10,16 @@
 
 // Cara kerja singkat: semua benda digambar sebagai garis dan titik lewat WebGL.
 // Tiap frame: update() menggerakkan benda, gambar() menampilkannya ke canvas.
-const Scene = (() => {
+type Garis = number[];       // satu garis: x0,y0,z0,x1,y1,z1
+type Warna = number[];       // RGB 0 sampai 1
+type Titik = [number, number, number];
+type Zona = 'none' | 'owner' | 'petugas' | 'admin';
+type Benda = Record<string, any>;   // kendaraan, orang, dan sepeda: bentuknya beda-beda tiap jenis
+interface Slot { x: number; sg: number; isi: boolean; idx: number; }
+
+export const Scene = (() => {
     // Warna aksen tiap zona (RGB 0 sampai 1). none = kursor di tengah.
-    const WARNA = {
+    const WARNA: Record<Zona, Warna> = {
         none: [0.34, 0.62, 1.00],
         owner: [0.70, 0.56, 1.00],
         petugas: [0.20, 0.88, 0.98],
@@ -21,7 +28,7 @@ const Scene = (() => {
 
     // Posisi kamera tiap zona. yaw = putar kiri-kanan, pitch = sudut dari atas,
     // dist = jarak, tx/tz = titik yang dilihat.
-    const KAMERA = {
+    const KAMERA: Record<Zona, { yaw: number; pitch: number; dist: number; tx: number; tz: number }> = {
         none: { yaw: 0.20, pitch: 0.44, dist: 33, tx: 0, tz: -1 },
         owner: { yaw: 0, pitch: 1.02, dist: 46, tx: 0, tz: -6 },
         petugas: { yaw: -0.52, pitch: 0.34, dist: 21, tx: -23, tz: 1 },
@@ -36,29 +43,30 @@ const Scene = (() => {
     const LAJU = 7.5;
 
     // gl = konteks WebGL, prog = program shader, u = lokasi variabel shader.
-    let gl, canvas, prog, u = {};
-    let bufDots, bufStatis, bufDinamis, nDots = 0, nStatis = 0;
+    let gl: WebGLRenderingContext, canvas: HTMLCanvasElement, prog: WebGLProgram;
+    const u: Record<string, any> = {};
+    let bufDots: WebGLBuffer, bufStatis: WebGLBuffer, bufDinamis: WebGLBuffer, nDots = 0, nStatis = 0;
     let running = false, last = 0, waktu = 0, spawnTimer = 0;
-    let zona = 'none';
+    let zona: Zona = 'none';
     const mouse = { x: 0, y: 0 };
     const cam = { ...KAMERA.none, warna: [...WARNA.none] };
     const palang = GERBANG.map(() => 0);
-    const slots = [];
-    const kendaraan = [];
-    const warga = [];       // pejalan kaki & pengemudi yang keluar dari mobil
-    const pesepeda = [];    // orang yang bersepeda
-    const petugas = [];     // petugas gerbang & petugas patroli
+    const slots: Slot[] = [];
+    const kendaraan: Benda[] = [];
+    const warga: Benda[] = [];       // pejalan kaki & pengemudi yang keluar dari mobil
+    const pesepeda: Benda[] = [];    // orang yang bersepeda
+    const petugas: Benda[] = [];     // petugas gerbang & petugas patroli
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ---------- Matriks (column-major) ----------
     // Matriks perspektif: benda jauh terlihat lebih kecil.
-    function perspective(fov, asp, n, f) {
+    function perspective(fov: number, asp: number, n: number, f: number) {
         const t = 1 / Math.tan(fov / 2), nf = 1 / (n - f);
         return [t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) * nf, -1, 0, 0, 2 * f * n * nf, 0];
     }
 
     // Matriks kamera: e = posisi mata, c = titik yang dilihat.
-    function lookAt(e, c) {
+    function lookAt(e: number[], c: number[]) {
         let zx = e[0] - c[0], zy = e[1] - c[1], zz = e[2] - c[2];
         let l = Math.hypot(zx, zy, zz); zx /= l; zy /= l; zz /= l;
         let xx = zz, xy = 0, xz = -zx;
@@ -69,7 +77,7 @@ const Scene = (() => {
     }
 
     // Perkalian dua matriks 4x4.
-    function kali(a, b) {
+    function kali(a: ArrayLike<number>, b: ArrayLike<number>) {
         const o = new Float32Array(16);
         for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
             let s = 0;
@@ -81,21 +89,21 @@ const Scene = (() => {
 
     // ---------- Geometri Dasar ----------
     // Tambah 12 garis rusuk sebuah kotak ke daftar s.
-    function kotak(s, x0, x1, y0, y1, z0, z1) {
+    function kotak(s: Garis[], x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) {
         const p = [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]];
         [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]
             .forEach(([a, b]) => s.push([...p[a], ...p[b]]));
     }
 
     // Tambah garis kabin mobil (atas lebih sempit dari bawah).
-    function kabin(s, bx0, bx1, tx0, tx1, y0, y1, w) {
+    function kabin(s: Garis[], bx0: number, bx1: number, tx0: number, tx1: number, y0: number, y1: number, w: number) {
         const p = [[bx0, y0, -w], [bx1, y0, -w], [bx1, y0, w], [bx0, y0, w], [tx0, y1, -w * .82], [tx1, y1, -w * .82], [tx1, y1, w * .82], [tx0, y1, w * .82]];
         [[4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]
             .forEach(([a, b]) => s.push([...p[a], ...p[b]]));
     }
 
     // Tambah roda berbentuk segi delapan.
-    function roda(s, cx, cy, cz, r) {
+    function roda(s: Garis[], cx: number, cy: number, cz: number, r: number) {
         for (let i = 0; i < 10; i++) {
             const a = i / 10 * Math.PI * 2, b = (i + 1) / 10 * Math.PI * 2;
             s.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r, cz, cx + Math.cos(b) * r, cy + Math.sin(b) * r, cz]);
@@ -107,7 +115,7 @@ const Scene = (() => {
     }
 
     // 1. Sedan 3D
-    const MOBIL = [];
+    const MOBIL: Garis[] = [];
     kotak(MOBIL, -2.15, 2.15, 0.32, 0.96, -0.92, 0.92);
     kotak(MOBIL, -1.95, 1.95, 0.45, 0.88, -0.82, 0.82);
     kabin(MOBIL, -1.25, 0.85, -0.85, 0.35, 0.96, 1.58, 0.86);
@@ -121,7 +129,7 @@ const Scene = (() => {
     [[-1.32, -0.96], [-1.32, 0.96], [1.32, -0.96], [1.32, 0.96]].forEach(([x, z]) => roda(MOBIL, x, 0.38, z, 0.38));
 
     // 2. SUV 3D
-    const SUV = [];
+    const SUV: Garis[] = [];
     kotak(SUV, -2.25, 2.20, 0.36, 1.08, -0.98, 0.98);
     kabin(SUV, -1.85, 0.95, -1.55, 0.42, 1.08, 1.82, 0.92);
     SUV.push(
@@ -133,7 +141,7 @@ const Scene = (() => {
     [[-1.38, -1.0], [-1.38, 1.0], [1.38, -1.0], [1.38, 1.0]].forEach(([x, z]) => roda(SUV, x, 0.42, z, 0.42));
 
     // 3. Motor 3D
-    const MOTOR = [];
+    const MOTOR: Garis[] = [];
     roda(MOTOR, -0.78, 0.34, 0, 0.34);
     roda(MOTOR, 0.78, 0.34, 0, 0.34);
     MOTOR.push(
@@ -152,11 +160,11 @@ const Scene = (() => {
 
     // ---------- Helper Gambar Gedung 3D di Sekeliling ----------
     // Tambah satu garis: titik a ke titik b dengan warna c.
-    function garis(arr, a, b, c) { arr.push(...a, ...c, ...b, ...c); }
+    function garis(arr: number[], a: number[], b: number[], c: Warna) { arr.push(...a, ...c, ...b, ...c); }
 
     // Gambar gedung: garis lantai, kolom kaca, dan atap.
-    function buatGedung(L, x0, x1, z0, z1, tinggi, lantaiStep, cUtama, cDalam, punyaMenara = false) {
-        const g = [];
+    function buatGedung(L: number[], x0: number, x1: number, z0: number, z1: number, tinggi: number, lantaiStep: number, cUtama: Warna, cDalam: Warna, punyaMenara = false) {
+        const g: Garis[] = [];
         kotak(g, x0, x1, 0, tinggi, z0, z1);
         g.forEach(s => garis(L, s.slice(0, 3), s.slice(3), cUtama));
 
@@ -186,7 +194,7 @@ const Scene = (() => {
         // Mahkota atap (rooftop crown) + menara antena
         const m = 0.7;
         if (lebarX > 3 && lebarZ > 3) {
-            const crown = [];
+            const crown: Garis[] = [];
             kotak(crown, x0 + m, x1 - m, tinggi, tinggi + 1.4, z0 + m, z1 - m);
             crown.forEach(s => garis(L, s.slice(0, 3), s.slice(3), cUtama));
             if (punyaMenara) {
@@ -212,7 +220,7 @@ const Scene = (() => {
             dots.push(px, py, pz, 1, 1, 1, 0.45);
         }
 
-        const L = [];
+        const L: number[] = [];
         const terang = [0.48, 0.78, 1.0, 0.90];
         const marka = [0.35, 0.62, 1.0, 0.72];
         const struktur = [0.30, 0.58, 1.0, 0.44];
@@ -230,13 +238,13 @@ const Scene = (() => {
         // Gedung Lobby Utama Tengah (tempat orang keluar-masuk gedung)
         buatGedung(L, -6, 6, -25, -14.5, 10.5, 2.1, terang, struktur, true);
         // Kanopi Teras Lobi Utama & Pintu Kaca Gedung Tengah
-        const lobi = [];
+        const lobi: Garis[] = [];
         kotak(lobi, -4.2, 4.2, 0, 3.6, -14.5, -12.2);
         lobi.forEach(s => garis(L, s.slice(0, 3), s.slice(3), terang));
         buatGedung(L, 8, 22, -26, -15, 15.5, 2.2, gedungUtama, gedungDalam, false);
         buatGedung(L, 24, 36, -27, -16, 20.5, 2.3, gedungUtama, gedungDalam, true);
         // Skybridge (Jembatan Udara Antar Gedung Utara di y = 9.2..11.0)
-        const sb1 = [];
+        const sb1: Garis[] = [];
         kotak(sb1, -24, -22, 9.2, 11.0, -22, -19);
         kotak(sb1, -8, -6, 6.8, 8.4, -21, -18.5);
         kotak(sb1, 6, 8, 6.8, 8.4, -21, -18.5);
@@ -290,7 +298,7 @@ const Scene = (() => {
                 }
 
                 if (i % 2 === 0) {
-                    const pBox = [];
+                    const pBox: Garis[] = [];
                     kotak(pBox, x - 0.13, x + 0.13, 0, yAtap, zPilar - 0.13, zPilar + 0.13);
                     pBox.forEach(s => garis(L, s.slice(0, 3), s.slice(3), struktur));
                     garis(L, [x, yAtap, zPilar], [x, yPuncak, zDalam + sg * 0.4], struktur);
@@ -307,7 +315,7 @@ const Scene = (() => {
 
         // Gerbang Gantry Pintar + Pos Jaga Petugas 3D (Guard Booth)
         GERBANG.forEach((gx, idx) => {
-            const gBox = [];
+            const gBox: Garis[] = [];
             kotak(gBox, gx - 0.35, gx + 0.35, 0, 4.4, -LANE - 0.9, -LANE - 0.2);
             kotak(gBox, gx - 0.35, gx + 0.35, 0, 4.4, LANE + 0.2, LANE + 0.9);
             kotak(gBox, gx - 0.45, gx + 0.45, 3.6, 4.4, -LANE - 0.9, LANE + 0.9);
@@ -338,7 +346,7 @@ const Scene = (() => {
 
     // ---------- Simulasi Kendaraan, Orang Keluar Mobil, Pesepeda, & Petugas ----------
     // Posisi z tengah slot. s.sg = -1 baris utara, +1 baris selatan.
-    const zSlot = s => s.sg * (LANE + SLOT_D / 2);
+    const zSlot = (s: Slot) => s.sg * (LANE + SLOT_D / 2);
 
     // Pilih slot kosong acak, lalu buat kendaraan beserta rute ke slot itu.
     function buatKendaraanMasuk(xMulai = -50) {
@@ -365,7 +373,7 @@ const Scene = (() => {
     }
 
     // Spawn pengemudi yang baru keluar dari pintu mobil lalu jalan kaki ke lobi gedung
-    function spawnOrangKeluarMobil(v) {
+    function spawnOrangKeluarMobil(v: Benda) {
         const cs = Math.cos(v.h), sn = Math.sin(v.h);
         // Posisi tepat di samping pintu kiri mobil
         const ox = v.x - 1.15 * sn;
@@ -461,7 +469,7 @@ const Scene = (() => {
     }
 
     // Selisih sudut terpendek, supaya kendaraan belok lewat arah terdekat.
-    function selisihSudut(a, b) {
+    function selisihSudut(a: number, b: number) {
         let d = a - b;
         while (d > Math.PI) d -= Math.PI * 2;
         while (d < -Math.PI) d += Math.PI * 2;
@@ -469,7 +477,7 @@ const Scene = (() => {
     }
 
     // Gerakkan v mengikuti titik rute (v.path). Hasilnya true kalau sudah sampai titik terakhir.
-    function jalan(v, dt) {
+    function jalan(v: Benda, dt: number) {
         let sisa = (v.laju || LAJU) * dt * (v.mundur ? 0.5 : 1);
         while (sisa > 0 && v.i < v.path.length - 1) {
             const b = v.path[v.i + 1];
@@ -484,7 +492,7 @@ const Scene = (() => {
     }
 
     // Perbarui posisi semua benda. dt = detik sejak frame sebelumnya, supaya kecepatan sama di semua komputer.
-    function update(dt) {
+    function update(dt: number) {
         spawnTimer -= dt;
         const bergerak = kendaraan.filter(v => !v.diam);
         if (spawnTimer <= 0 && bergerak.length < 4) {
@@ -583,7 +591,7 @@ const Scene = (() => {
     // Susun garis benda yang bergerak. Dijalankan tiap frame.
     function bangunDinamis() {
         let n = 0;
-        const tulis = (x, y, z, c) => {
+        const tulis = (x: number, y: number, z: number, c: Warna) => {
             if (n + 7 > dinamis.length) {
                 const baru = new Float32Array(dinamis.length * 2);
                 baru.set(dinamis);
@@ -604,10 +612,10 @@ const Scene = (() => {
         const warnaSepeda = [0.35, 0.95, 0.90, 0.92];
 
         // Helper gambar manusia 3D (kepala, badan, ayunan kaki & tangan, topi petugas + tongkat lalin)
-        function gambarManusia3D(ox, oz, arah, fase, col, adalahPetugas = false, lambaikan = false) {
+        function gambarManusia3D(ox: number, oz: number, arah: number, fase: number, col: Warna, adalahPetugas = false, lambaikan = false) {
             const cs = Math.cos(arah), sn = Math.sin(arah);
-            const tr = (lx, ly, lz) => [ox + lx * cs - lz * sn, ly, oz + lx * sn + lz * cs];
-            const seg = (a, b, c = col) => { tulis(...tr(...a), c); tulis(...tr(...b), c); };
+            const tr = (lx: number, ly: number, lz: number): Titik => [ox + lx * cs - lz * sn, ly, oz + lx * sn + lz * cs];
+            const seg = (a: Titik, b: Titik, c = col) => { tulis(...tr(...a), c); tulis(...tr(...b), c); };
 
             const ayun = Math.sin(fase) * 0.28;
             // Kaki kiri & kanan
@@ -652,10 +660,10 @@ const Scene = (() => {
         }
 
         // Helper gambar Orang Bersepeda 3D (Sepeda + Roda Berputar + Pengendara Mengayuh)
-        function gambarPesepeda3D(sp) {
+        function gambarPesepeda3D(sp: Benda) {
             const cs = Math.cos(sp.h), sn = Math.sin(sp.h);
-            const tr = (lx, ly, lz) => [sp.x + lx * cs - lz * sn, ly, sp.z + lx * sn + lz * cs];
-            const seg = (a, b, c = warnaSepeda) => { tulis(...tr(...a), c); tulis(...tr(...b), c); };
+            const tr = (lx: number, ly: number, lz: number): Titik => [sp.x + lx * cs - lz * sn, ly, sp.z + lx * sn + lz * cs];
+            const seg = (a: Titik, b: Titik, c = warnaSepeda) => { tulis(...tr(...a), c); tulis(...tr(...b), c); };
 
             const r = 0.34;
             // Roda belakang (-0.58) & depan (+0.58) dengan jari-jari berputar
@@ -720,8 +728,8 @@ const Scene = (() => {
                 const r = 0.26;
                 const dx = Math.cos(rot) * r, dz = Math.sin(rot) * r;
                 const colOk = [0.22, 0.92, 0.78, 0.48];
-                const pTop = [s.x, bob + 0.32, sz], pBot = [s.x, bob - 0.32, sz];
-                const pts = [[s.x + dx, bob, sz + dz], [s.x - dz, bob, sz + dx], [s.x - dx, bob, sz - dz], [s.x + dz, bob, sz - dx]];
+                const pTop: Titik = [s.x, bob + 0.32, sz], pBot: Titik = [s.x, bob - 0.32, sz];
+                const pts: Titik[] = [[s.x + dx, bob, sz + dz], [s.x - dz, bob, sz + dx], [s.x - dx, bob, sz - dz], [s.x + dz, bob, sz - dx]];
                 for (let k = 0; k < 4; k++) {
                     const a = pts[k], b = pts[(k + 1) % 4];
                     tulis(...a, colOk); tulis(...b, colOk);
@@ -737,7 +745,7 @@ const Scene = (() => {
             const cs = Math.cos(v.h), sn = Math.sin(v.h);
             const scanY = 0.38 + ((waktu * 0.75 + idx * 0.37) % 1) * 1.25;
 
-            v.jenis.forEach(s => {
+            v.jenis.forEach((s: Garis) => {
                 const dekatScan = Math.abs(s[1] - scanY) < 0.18 || Math.abs(s[4] - scanY) < 0.18;
                 const col = !v.diam ? (dekatScan ? aksenTerang : aksen) : (dekatScan ? parkirScan : c);
                 tulis(v.x + s[0] * cs - s[2] * sn, s[1], v.z + s[0] * sn + s[2] * cs, col);
@@ -853,7 +861,7 @@ const Scene = (() => {
 
         gl.bindBuffer(gl.ARRAY_BUFFER, bufDots);
         pasangAtribut();
-        gl.uniform4f(u.uTint, ...cam.warna, 1);
+        gl.uniform4f(u.uTint, cam.warna[0], cam.warna[1], cam.warna[2], 1);
         gl.uniform1f(u.uPoint, Math.max(1.6, 2.5 * dpr));
         gl.uniform1f(u.uBulat, 1);
         gl.uniform1f(u.uWave, reduce ? 0 : 1);
@@ -875,7 +883,7 @@ const Scene = (() => {
     }
 
     // Loop animasi, dipanggil browser sekitar 60 kali per detik. dt dibatasi supaya tidak lompat setelah tab ditinggal.
-    function frame(now) {
+    function frame(now: number) {
         if (!running) return;
         const dt = Math.min(0.05, (now - last) / 1000 || 0);
         last = now;
@@ -920,24 +928,25 @@ const Scene = (() => {
         }`;
 
     // Compile kode shader. Kalau ada error, lemparkan pesannya.
-    function shader(type, src) {
-        const s = gl.createShader(type);
+    function shader(type: number, src: string) {
+        const s = gl.createShader(type)!;
         gl.shaderSource(s, src);
         gl.compileShader(s);
-        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? 'Shader gagal dikompilasi');
         return s;
     }
 
     // Siapkan WebGL. Hasilnya false kalau browser tidak mendukung.
-    function init(cv) {
+    function init(cv: HTMLCanvasElement) {
         canvas = cv;
-        gl = canvas.getContext('webgl', { antialias: true, alpha: true });
-        if (!gl) return false;
+        const konteks = canvas.getContext('webgl', { antialias: true, alpha: true });
+        if (!konteks) return false;
+        gl = konteks;
         prog = gl.createProgram();
         gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
         gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
         gl.linkProgram(prog);
-        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) ?? 'Program gagal ditautkan');
         ['uVP', 'uEye', 'uFog', 'uTime', 'uWave', 'uPoint', 'uBulat', 'uTint'].forEach(n => u[n] = gl.getUniformLocation(prog, n));
         u.aPos = gl.getAttribLocation(prog, 'aPos');
         u.aCol = gl.getAttribLocation(prog, 'aCol');
@@ -955,7 +964,7 @@ const Scene = (() => {
 
     return {
         // Mulai animasi. Hasilnya false kalau WebGL tidak tersedia.
-        start(cv) {
+        start(cv: HTMLCanvasElement) {
             if (!gl && !init(cv)) return false;
             if (running) return true;
             running = true;
@@ -966,8 +975,8 @@ const Scene = (() => {
         // Hentikan animasi.
         stop() { running = false; },
         // Pindahkan kamera ke zona owner, petugas, atau admin.
-        setZona(z) { zona = z || 'none'; },
+        setZona(z: Zona | null) { zona = z || 'none'; },
         // Posisi kursor -1 sampai 1, untuk efek kamera bergeser.
-        setMouse(x, y) { mouse.x = x; mouse.y = y; }
+        setMouse(x: number, y: number) { mouse.x = x; mouse.y = y; }
     };
 })();
